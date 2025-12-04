@@ -19,7 +19,6 @@
 
 This [Terraform](https://www.terraform.io/) provider allows you to manage Iceberg resources, such as namespaces and tables.
 
-
 ## Get in Touch
 
 - [Iceberg community](https://iceberg.apache.org/community/)
