@@ -44,7 +44,7 @@ func (p *icebergProvider) Metadata(_ context.Context, _ provider.MetadataRequest
 // Schema defines the provider-level schema for configuration data.
 func (p *icebergProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Use Terraform to interact with Iceberg REST Catalog instances.",
+		Description: "Use OpenTofu to interact with Iceberg REST Catalog instances.",
 	}
 }
 
