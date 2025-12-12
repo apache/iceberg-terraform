@@ -15,9 +15,9 @@
  - limitations under the License.
  -->
 
-# Iceberg OpenTofu Provider
+# Iceberg Terraform Provider
 
-This [OpenTofu](https://www.opentofu.org/) provider allows you to manage Iceberg resources, such as namespaces and tables.
+This [Teraform](https://terraform.io) and [OpenTofu](https://www.opentofu.org/) provider allows you to manage Iceberg resources, such as namespaces and tables.
 
 ## Get in Touch
 
