@@ -23,10 +23,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
 
+const ADDRESS = "iceberg.apache.org/terraform"
+
 func main() {
 	err := providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
 		// TODO: This needs to change on release with the published name.
-		Address: "iceberg.apache.org/terraform",
+		Address: ADDRESS,
 	})
 
 	if err != nil {

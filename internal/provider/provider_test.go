@@ -16,16 +16,11 @@
 package provider
 
 import (
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestMain(m *testing.M) {
-	os.Exit(m.Run())
-}
-
 func TestProvider(t *testing.T) {
-	if New() == nil {
-		t.Fatal("Expected New() to return a non-nil provider")
-	}
+		assert.NotNil(t, New())
 }
