@@ -1,0 +1,27 @@
+# .gitignore
+# Binaries
+bin/
+terraform-provider-*
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfplan
+.terraformrc
+.terraform.d/plugins
+
+# rat check
+build/
+lib/
+
+# intellij files
+.idea/
+.idea_modules/
+*.ipr
+*.iws
+*.iml
+
+.DS_Store
+.vscode
