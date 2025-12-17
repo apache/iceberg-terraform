@@ -22,5 +22,5 @@ import (
 )
 
 func TestProvider(t *testing.T) {
-		assert.NotNil(t, New())
+	assert.NotNil(t, New()())
 }
