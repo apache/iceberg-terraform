@@ -49,11 +49,14 @@ jobs:
         go-version: ${{ matrix.go }}
         cache: true
         cache-dependency-path: go.sum
-    - name: Install tools
-      run: make install-tools
-    - name: Go mod tidy
-      run: make tidy
+    - name: Install staticcheck      
+      run: GOTOOLCHAIN='go1.24.9' go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action
+      with:
+        version: v2.0.2
+        args: --timeout=10m
     - name: Lint
-      run: make lint
+      run: staticcheck ./...
     - name: Run tests
-      run: make test
+      run: go test -v ./...
