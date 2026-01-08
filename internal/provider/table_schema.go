@@ -22,11 +22,23 @@ import (
 	"github.com/apache/iceberg-go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 type icebergTableSchema struct {
 	ID     types.Int64    `tfsdk:"id"`
 	Fields []types.Object `tfsdk:"fields"`
+}
+
+func (icebergTableSchema) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"id": types.Int64Type,
+		"fields": types.ListType{
+			ElemType: types.ObjectType{
+				AttrTypes: icebergTableSchemaField{}.AttrTypes(),
+			},
+		},
+	}
 }
 
 type icebergTableSchemaField struct {
@@ -37,16 +49,42 @@ type icebergTableSchemaField struct {
 	Doc      types.String                `tfsdk:"doc"`
 }
 
+func (icebergTableSchemaField) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"id":       types.Int64Type,
+		"name":     types.StringType,
+		"type":     types.ObjectType{AttrTypes: icebergTableSchemaFieldType{}.AttrTypes()},
+		"required": types.BoolType,
+		"doc":      types.StringType,
+	}
+}
+
 type icebergTableSchemaFieldType struct {
 	Primitive types.String `tfsdk:"primitive"`
 	List      types.Object `tfsdk:"list"`
 	Map       types.Object `tfsdk:"map"`
 }
 
+func (icebergTableSchemaFieldType) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"primitive": types.StringType,
+		"list":      types.ObjectType{AttrTypes: icebergTableSchemaFieldTypeList{}.AttrTypes()},
+		"map":       types.ObjectType{AttrTypes: icebergTableSchemaFieldTypeMap{}.AttrTypes()},
+	}
+}
+
 type icebergTableSchemaFieldTypeList struct {
 	ElementID       types.Int64  `tfsdk:"element_id"`
 	ElementType     types.String `tfsdk:"element_type"`
 	ElementRequired types.Bool   `tfsdk:"element_required"`
+}
+
+func (icebergTableSchemaFieldTypeList) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"element_id":       types.Int64Type,
+		"element_type":     types.StringType,
+		"element_required": types.BoolType,
+	}
 }
 
 type icebergTableSchemaFieldTypeMap struct {
@@ -57,6 +95,16 @@ type icebergTableSchemaFieldTypeMap struct {
 	ValueRequired types.Bool   `tfsdk:"value_required"`
 }
 
+func (icebergTableSchemaFieldTypeMap) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"key_id":         types.Int64Type,
+		"key_type":       types.StringType,
+		"value_id":       types.Int64Type,
+		"value_type":     types.StringType,
+		"value_required": types.BoolType,
+	}
+}
+
 func terraformTypeToIcebergType(typ icebergTableSchemaFieldType) (iceberg.Type, error) {
 	if !typ.Primitive.IsNull() {
 		return stringToType(typ.Primitive.ValueString())
@@ -64,7 +112,7 @@ func terraformTypeToIcebergType(typ icebergTableSchemaFieldType) (iceberg.Type, 
 
 	if !typ.List.IsNull() {
 		var list icebergTableSchemaFieldTypeList
-		if err := typ.List.As(context.Background(), &list, false); err.HasError() {
+		if err := typ.List.As(context.Background(), &list, basetypes.ObjectAsOptions{}); err.HasError() {
 			return nil, errors.New("failed to parse list type")
 		}
 
@@ -73,16 +121,16 @@ func terraformTypeToIcebergType(typ icebergTableSchemaFieldType) (iceberg.Type, 
 			return nil, err
 		}
 
-		return iceberg.ListType{
+		return &iceberg.ListType{
 			ElementID:       int(list.ElementID.ValueInt64()),
-			ElementType:     elemType,
+			Element:         elemType,
 			ElementRequired: list.ElementRequired.ValueBool(),
 		}, nil
 	}
 
 	if !typ.Map.IsNull() {
 		var m icebergTableSchemaFieldTypeMap
-		if err := typ.Map.As(context.Background(), &m, false); err.HasError() {
+		if err := typ.Map.As(context.Background(), &m, basetypes.ObjectAsOptions{}); err.HasError() {
 			return nil, errors.New("failed to parse map type")
 		}
 
@@ -96,7 +144,7 @@ func terraformTypeToIcebergType(typ icebergTableSchemaFieldType) (iceberg.Type, 
 			return nil, err
 		}
 
-		return iceberg.MapType{
+		return &iceberg.MapType{
 			KeyID:         int(m.KeyID.ValueInt64()),
 			KeyType:       keyType,
 			ValueID:       int(m.ValueID.ValueInt64()),
@@ -271,8 +319,8 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
 			},
 		), nil
-	case iceberg.ListType:
-		elementType, err := icebergTypeToTerraformType(typ.ElementType)
+	case *iceberg.ListType:
+		elementType, err := icebergTypeToTerraformType(typ.Element)
 		if err != nil {
 			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
 		}
@@ -291,7 +339,7 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 				"map": types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
 			},
 		), nil
-	case iceberg.MapType:
+	case *iceberg.MapType:
 		keyType, err := icebergTypeToTerraformType(typ.KeyType)
 		if err != nil {
 			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err

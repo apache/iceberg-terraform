@@ -22,12 +22,12 @@ import (
 
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
-	"github.com/apache/iceberg-go/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
@@ -57,7 +57,7 @@ func (r *icebergTableResource) Metadata(_ context.Context, req resource.Metadata
 	resp.TypeName = req.ProviderTypeName + "_table"
 }
 
-func (r *icebergTableResource) Schema(_ context.Context, _ rscschema.SchemaRequest, resp *rscschema.SchemaResponse) {
+func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = rscschema.Schema{
 		Description: "A resource for managing Iceberg tables.",
 		Attributes: map[string]rscschema.Attribute{
@@ -211,7 +211,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 	tableIdent := catalog.ToIdentifier(append(namespaceName, tableName)...)
 
 	var schema icebergTableSchema
-	diags = data.Schema.As(ctx, &schema, false)
+	diags = data.Schema.As(ctx, &schema, basetypes.ObjectAsOptions{})
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -220,7 +220,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 	fields := make([]iceberg.NestedField, len(schema.Fields))
 	for i, fieldObj := range schema.Fields {
 		var field icebergTableSchemaField
-		diags = fieldObj.As(ctx, &field, false)
+		diags = fieldObj.As(ctx, &field, basetypes.ObjectAsOptions{})
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
@@ -243,7 +243,8 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 
 	tblSchema := iceberg.NewSchema(int(schema.ID.ValueInt64()), fields...)
 
-	tbl, err := r.catalog.CreateTable(ctx, tableIdent, *tblSchema, iceberg.UnpartitionedSpec(), nil, nil)
+	// TODO: Add PartitionSpec support
+	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create table", err.Error())
 		return
@@ -321,10 +322,10 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 		)
 	}
 	data.Schema = types.ObjectValueMust(
-		rscschema.SingleNestedAttribute{}.Attributes["schema"].GetType(),
+		icebergTableSchema{}.AttrTypes(),
 		map[string]attr.Value{
 			"id":     types.Int64Value(int64(icebergSchema.ID)),
-			"fields": types.ListValueMust(icebergTableSchemaField{}.AttrTypes(), fields),
+			"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaField{}.AttrTypes()}, fields),
 		},
 	)
 
