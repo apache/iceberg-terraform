@@ -22,6 +22,7 @@ import (
 
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -50,7 +51,8 @@ type icebergTableResourceModel struct {
 }
 
 type icebergTableResource struct {
-	catalog catalog.Catalog
+	catalog  catalog.Catalog
+	provider *icebergProvider
 }
 
 func (r *icebergTableResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -187,10 +189,39 @@ func (r *icebergTableResource) Configure(ctx context.Context, req resource.Confi
 		return
 	}
 
-	r.catalog = provider.catalog
+	r.provider = provider
+}
+
+func (r *icebergTableResource) ConfigureCatalog(ctx context.Context, diags *diag.Diagnostics) {
+	if r.catalog != nil {
+		return
+	}
+
+	if r.provider == nil {
+		diags.AddError(
+			"Provider not configured",
+			"The provider hasn't been configured before this operation",
+		)
+		return
+	}
+
+	catalog, err := r.provider.NewCatalog(ctx)
+	if err != nil {
+		diags.AddError(
+			"Failed to create catalog",
+			"Failed to create catalog: "+err.Error(),
+		)
+		return
+	}
+	r.catalog = catalog
 }
 
 func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	r.ConfigureCatalog(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	var data icebergTableResourceModel
 
 	diags := req.Plan.Get(ctx, &data)
@@ -264,6 +295,11 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 }
 
 func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	r.ConfigureCatalog(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	var data icebergTableResourceModel
 
 	tflog.Info(ctx, "Reading table resource")
@@ -334,10 +370,19 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	r.ConfigureCatalog(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	// Not implemented yet
 }
 
 func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	r.ConfigureCatalog(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	var data icebergTableResourceModel
 
 	diags := req.State.Get(ctx, &data)
