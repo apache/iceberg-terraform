@@ -60,3 +60,8 @@ jobs:
       run: staticcheck ./...
     - name: Run tests
       run: go test -v ./...
+    - name: Run integration tests
+      run: make test-integration
+    - name: Show debug logs
+      if: ${{ failure() }}
+      run: docker compose -f dev/docker-compose.yml logs

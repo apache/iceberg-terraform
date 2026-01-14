@@ -19,14 +19,14 @@ import (
 	"context"
 	"log"
 
-	"github.com/apache/iceberg-terraform/internal/provider"
+	"github.com/apache/terraform-provider-iceberg/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
 
-const ADDRESS = "iceberg.apache.org/terraform"
+const ADDRESS = "apache.org/iceberg/terraform-provider-iceberg"
 
 func main() {
-	err := providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
+	err := providerserver.Serve(context.Background(), provider.New(), providerserver.ServeOpts{
 		// TODO: This needs to change on release with the published name.
 		Address: ADDRESS,
 	})
