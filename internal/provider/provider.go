@@ -181,5 +181,6 @@ func (p *icebergProvider) DataSources(_ context.Context) []func() datasource.Dat
 func (p *icebergProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewNamespaceResource,
+		NewTableResource,
 	}
 }

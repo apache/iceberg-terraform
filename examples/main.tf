@@ -30,7 +30,7 @@ resource "iceberg_table" "example" {
     id = 1
     fields = [
       {
-        id   = 1
+        id   = 0
         name = "id"
         type = {
           primitive = "long"
@@ -38,7 +38,7 @@ resource "iceberg_table" "example" {
         required = true
       },
       {
-        id   = 2
+        id   = 1
         name = "data"
         type = {
           primitive = "string"
@@ -46,11 +46,11 @@ resource "iceberg_table" "example" {
         required = false
       },
       {
-        id   = 3
+        id   = 2
         name = "tags"
         type = {
           list = {
-            element_id       = 4
+            element_id       = 3
             element_type     = "string"
             element_required = true
           }
