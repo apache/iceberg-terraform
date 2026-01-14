@@ -191,6 +191,40 @@ func stringToType(s string) (iceberg.Type, error) {
 	return nil, errors.New("unsupported type: " + s)
 }
 
+func typeToString(t iceberg.Type) (string, error) {
+	switch t.(type) {
+	case iceberg.BooleanType:
+		return "boolean", nil
+	case iceberg.Int32Type:
+		return "int", nil
+	case iceberg.Int64Type:
+		return "long", nil
+	case iceberg.Float32Type:
+		return "float", nil
+	case iceberg.Float64Type:
+		return "double", nil
+	case iceberg.DecimalType:
+		return "decimal", nil
+	case iceberg.DateType:
+		return "date", nil
+	case iceberg.TimeType:
+		return "time", nil
+	case iceberg.TimestampType:
+		return "timestamp", nil
+	case iceberg.TimestampTzType:
+		return "timestamptz", nil
+	case iceberg.StringType:
+		return "string", nil
+	case iceberg.UUIDType:
+		return "uuid", nil
+	case iceberg.FixedType:
+		return "fixed", nil
+	case iceberg.BinaryType:
+		return "binary", nil
+	}
+	return "", errors.New("unsupported type or nested type inside list/map not supported by this provider version")
+}
+
 func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 	switch typ := t.(type) {
 	case iceberg.BooleanType:
@@ -320,7 +354,7 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 			},
 		), nil
 	case *iceberg.ListType:
-		elementType, err := icebergTypeToTerraformType(typ.Element)
+		elementType, err := typeToString(typ.Element)
 		if err != nil {
 			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
 		}
@@ -332,7 +366,7 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 					icebergTableSchemaFieldTypeList{}.AttrTypes(),
 					map[string]attr.Value{
 						"element_id":       types.Int64Value(int64(typ.ElementID)),
-						"element_type":     elementType,
+						"element_type":     types.StringValue(elementType),
 						"element_required": types.BoolValue(typ.ElementRequired),
 					},
 				),
@@ -340,11 +374,11 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 			},
 		), nil
 	case *iceberg.MapType:
-		keyType, err := icebergTypeToTerraformType(typ.KeyType)
+		keyType, err := typeToString(typ.KeyType)
 		if err != nil {
 			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
 		}
-		valueType, err := icebergTypeToTerraformType(typ.ValueType)
+		valueType, err := typeToString(typ.ValueType)
 		if err != nil {
 			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
 		}
@@ -357,9 +391,9 @@ func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
 					icebergTableSchemaFieldTypeMap{}.AttrTypes(),
 					map[string]attr.Value{
 						"key_id":         types.Int64Value(int64(typ.KeyID)),
-						"key_type":       keyType,
+						"key_type":       types.StringValue(keyType),
 						"value_id":       types.Int64Value(int64(typ.ValueID)),
-						"value_type":     valueType,
+						"value_type":     types.StringValue(valueType),
 						"value_required": types.BoolValue(typ.ValueRequired),
 					},
 				),
