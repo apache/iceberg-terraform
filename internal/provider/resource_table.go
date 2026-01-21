@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
@@ -81,6 +82,10 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 			"schema": rscschema.SingleNestedAttribute{
 				Description: "The schema of the table.",
 				Required:    true,
+				// TODO: Update schema in place instead of replacement
+				PlanModifiers: []planmodifier.Object{
+					objectplanmodifier.RequiresReplace(),
+				},
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
