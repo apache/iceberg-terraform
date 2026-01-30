@@ -13,25 +13,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+.PHONY: test-integration test-integration-setup test-integration-exec test-integration-cleanup
 
-import (
-	"context"
-	"log"
+test-integration: test-integration-setup test-integration-exec test-integration-cleanup ## Run integration tests
 
-	"github.com/apache/terraform-provider-iceberg/internal/provider"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-)
+test-integration-setup: ## Start Docker services for integration tests
+	docker compose -f dev/docker-compose.yml kill
+	docker compose -f dev/docker-compose.yml rm -f
+	docker compose -f dev/docker-compose.yml up -d --wait
 
-const ADDRESS = "apache.org/iceberg/terraform-provider-iceberg"
+test-integration-exec: ## Run integration tests
+	TF_ACC=1 ICEBERG_CATALOG_URI=http://localhost:8181 go test ./... -v
 
-func main() {
-	err := providerserver.Serve(context.Background(), provider.New(), providerserver.ServeOpts{
-		// TODO: This needs to change on release with the published name.
-		Address: ADDRESS,
-	})
-
-	if err != nil {
-		log.Fatal(err)
-	}
-}
+test-integration-cleanup: ## Clean up integration test environment
+	@if [ "${KEEP_COMPOSE}" != "1" ]; then \
+		echo "Cleaning up Docker containers..."; \
+		docker compose -f dev/docker-compose.yml down; \
+	fi
