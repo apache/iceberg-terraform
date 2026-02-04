@@ -27,33 +27,24 @@ resource "iceberg_table" "example" {
   name      = "example_table"
 
   schema = {
-    id = 0
     fields = [
       {
-        id   = 0
-        name = "id"
-        type = {
-          primitive = "long"
-        }
+        name     = "id"
+        type     = "long"
         required = true
       },
       {
-        id   = 1
-        name = "data"
-        type = {
-          primitive = "string"
-        }
+        name     = "data"
+        type     = "string"
         required = false
       },
       {
-        id   = 2
-        name = "tags"
-        type = {
-          list = {
-            element_id       = 3
-            element_type     = "string"
-            element_required = true
-          }
+        name     = "tags"
+        type     = "list"
+        list_properties = {
+          element_id       = 3
+          element_type     = "string"
+          element_required = true
         }
         required = false
       }

@@ -22,15 +22,15 @@ import (
 
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -42,13 +42,13 @@ func NewTableResource() resource.Resource {
 	return &icebergTableResource{}
 }
 
-
 type icebergTableResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Namespace      types.List   `tfsdk:"namespace"`
-	Name           types.String `tfsdk:"name"`
-	Schema         types.Object `tfsdk:"schema"`
-	FullProperties types.Map    `tfsdk:"full_properties"`
+	ID               types.String `tfsdk:"id"`
+	Namespace        types.List   `tfsdk:"namespace"`
+	Name             types.String `tfsdk:"name"`
+	Schema           types.Object `tfsdk:"schema"`
+	UserProperties   types.Map    `tfsdk:"user_properties"`
+	ServerProperties types.Map    `tfsdk:"server_properties"`
 }
 
 type icebergTableResource struct {
@@ -89,7 +89,8 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
-						Required:    true,
+						Optional:    true,
+						Computed:    true,
 					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the schema.",
@@ -98,63 +99,82 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 							Attributes: map[string]rscschema.Attribute{
 								"id": rscschema.Int64Attribute{
 									Description: "The field ID.",
-									Required:    true,
+									Optional:    true,
+									Computed:    true,
 								},
 								"name": rscschema.StringAttribute{
 									Description: "The field name.",
 									Required:    true,
 								},
-								"type": rscschema.SingleNestedAttribute{
+								"type": rscschema.StringAttribute{
 									Description: "The field type.",
 									Required:    true,
+								},
+								"decimal_properties": rscschema.SingleNestedAttribute{
+									Description: "Properties for decimal type.",
+									Optional:    true,
 									Attributes: map[string]rscschema.Attribute{
-										"primitive": rscschema.StringAttribute{
-											Description: "The primitive type.",
-											Optional:    true,
+										"precision": rscschema.Int64Attribute{
+											Description: "The precision of the decimal.",
+											Required:    true,
 										},
-										"list": rscschema.SingleNestedAttribute{
-											Description: "The list type.",
-											Optional:    true,
-											Attributes: map[string]rscschema.Attribute{
-												"element_id": rscschema.Int64Attribute{
-													Description: "The list element id.",
-													Required:    true,
-												},
-												"element_type": rscschema.StringAttribute{
-													Description: "The list element type.",
-													Required:    true,
-												},
-												"element_required": rscschema.BoolAttribute{
-													Description: "Whether the list element is required.",
-													Required:    true,
-												},
-											},
+										"scale": rscschema.Int64Attribute{
+											Description: "The scale of the decimal.",
+											Required:    true,
 										},
-										"map": rscschema.SingleNestedAttribute{
-											Description: "The map type.",
-											Optional:    true,
-											Attributes: map[string]rscschema.Attribute{
-												"key_id": rscschema.Int64Attribute{
-													Description: "The map key id.",
-													Required:    true,
-												},
-												"key_type": rscschema.StringAttribute{
-													Description: "The map key type.",
-													Required:    true,
-												},
-												"value_id": rscschema.Int64Attribute{
-													Description: "The map value id.",
-													Required:    true,
-												},
-												"value_type": rscschema.StringAttribute{
-													Description: "The map value type.",
-													Required:    true,
-												},
-												"value_required": rscschema.BoolAttribute{
-													Description: "Whether the map value is required.",
-													Required:    true,
-												},
-											},
+									},
+								},
+								"fixed_properties": rscschema.SingleNestedAttribute{
+									Description: "Properties for fixed type.",
+									Optional:    true,
+									Attributes: map[string]rscschema.Attribute{
+										"length": rscschema.Int64Attribute{
+											Description: "The length of the fixed type.",
+											Required:    true,
+										},
+									},
+								},
+								"list_properties": rscschema.SingleNestedAttribute{
+									Description: "Properties for list type.",
+									Optional:    true,
+									Attributes: map[string]rscschema.Attribute{
+										"element_id": rscschema.Int64Attribute{
+											Description: "The list element id.",
+											Required:    true,
+										},
+										"element_type": rscschema.StringAttribute{
+											Description: "The list element type.",
+											Required:    true,
+										},
+										"element_required": rscschema.BoolAttribute{
+											Description: "Whether the list element is required.",
+											Required:    true,
+										},
+									},
+								},
+								"map_properties": rscschema.SingleNestedAttribute{
+									Description: "Properties for map type.",
+									Optional:    true,
+									Attributes: map[string]rscschema.Attribute{
+										"key_id": rscschema.Int64Attribute{
+											Description: "The map key id.",
+											Required:    true,
+										},
+										"key_type": rscschema.StringAttribute{
+											Description: "The map key type.",
+											Required:    true,
+										},
+										"value_id": rscschema.Int64Attribute{
+											Description: "The map value id.",
+											Required:    true,
+										},
+										"value_type": rscschema.StringAttribute{
+											Description: "The map value type.",
+											Required:    true,
+										},
+										"value_required": rscschema.BoolAttribute{
+											Description: "Whether the map value is required.",
+											Required:    true,
 										},
 									},
 								},
@@ -171,8 +191,13 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 					},
 				},
 			},
-			"full_properties": rscschema.MapAttribute{
-				Description: "Full properties returned by IRC for the table. Cannot be set by users.",
+			"user_properties": rscschema.MapAttribute{
+				Description: "User-defined properties for the table.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"server_properties": rscschema.MapAttribute{
+				Description: "Properties returned by the server.",
 				Computed:    true,
 				ElementType: types.StringType,
 			},
@@ -262,7 +287,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 			return
 		}
 
-		typ, err := terraformTypeToIcebergType(field.Type)
+		typ, err := terraformToIcebergType(field)
 		if err != nil {
 			resp.Diagnostics.AddError("invalid field type", err.Error())
 			return
@@ -279,8 +304,17 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 
 	tblSchema := iceberg.NewSchema(int(schema.ID.ValueInt64()), fields...)
 
+	userProps := make(map[string]string)
+	if !data.UserProperties.IsNull() && !data.UserProperties.IsUnknown() {
+		diags = data.UserProperties.ElementsAs(ctx, &userProps, false)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
 	// TODO: Add PartitionSpec support
-	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema)
+	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema, catalog.WithProperties(userProps))
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create table", err.Error())
 		return
@@ -288,12 +322,31 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 
 	data.ID = types.StringValue(strings.Join(tableIdent, "."))
 
-	loadedProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
+	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	data.FullProperties = loadedProperties
+	data.ServerProperties = serverProperties
+
+	// Update schema from the created table to capture assigned IDs
+	icebergSchema := tbl.Schema()
+	currentFields := make([]attr.Value, len(icebergSchema.Fields()))
+	for i, field := range icebergSchema.Fields() {
+		fieldVal, err := icebergToTerraformField(field)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to convert iceberg field to terraform field", err.Error())
+			return
+		}
+		currentFields[i] = fieldVal
+	}
+	data.Schema = types.ObjectValueMust(
+		icebergTableSchema{}.AttrTypes(),
+		map[string]attr.Value{
+			"id":     types.Int64Value(int64(icebergSchema.ID)),
+			"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaField{}.AttrTypes()}, currentFields),
+		},
+	)
 
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
@@ -335,32 +388,22 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	fullProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
+	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	data.FullProperties = fullProperties
+	data.ServerProperties = serverProperties
 
 	icebergSchema := tbl.Schema()
 	fields := make([]attr.Value, len(icebergSchema.Fields()))
 	for i, field := range icebergSchema.Fields() {
-		terraformType, err := icebergTypeToTerraformType(field.Type)
+		fieldVal, err := icebergToTerraformField(field)
 		if err != nil {
-			resp.Diagnostics.AddError("failed to convert iceberg type to terraform type", err.Error())
+			resp.Diagnostics.AddError("failed to convert iceberg field to terraform field", err.Error())
 			return
 		}
-
-		fields[i] = types.ObjectValueMust(
-			icebergTableSchemaField{}.AttrTypes(),
-			map[string]attr.Value{
-				"id":       types.Int64Value(int64(field.ID)),
-				"name":     types.StringValue(field.Name),
-				"type":     terraformType,
-				"required": types.BoolValue(field.Required),
-				"doc":      types.StringValue(field.Doc),
-			},
-		)
+		fields[i] = fieldVal
 	}
 	data.Schema = types.ObjectValueMust(
 		icebergTableSchema{}.AttrTypes(),
@@ -375,11 +418,10 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	r.ConfigureCatalog(ctx, &resp.Diagnostics)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	// Not implemented yet
+	resp.Diagnostics.AddError(
+		"Not Implemented",
+		"Update is not implemented for iceberg_table yet. Please use RequiresReplace if you need to change the table.",
+	)
 }
 
 func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

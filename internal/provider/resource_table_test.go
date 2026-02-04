@@ -42,6 +42,8 @@ func TestAccIcebergTable(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("iceberg_table.test", "namespace.0", "db1"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "name", "test_table"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.0.name", "id"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.0.type", "long"),
 				),
 			},
 		},
@@ -79,7 +81,8 @@ func (s *mockIcebergRESTServerTable) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `{"metadata-location": "...", "metadata": {"properties":{}}}`)
+			// Minimal valid response with schema
+			fmt.Fprintf(w, `{"metadata-location": "...", "metadata": {"format-version": 2, "schema": {"type": "struct", "schema-id": 0, "fields": [{"id": 1, "name": "id", "required": true, "type": "long"}, {"id": 2, "name": "data", "required": false, "type": "string"}]}, "properties":{}}}`)
 
 		case http.MethodGet: // Load table
 			tableName := parts[4]
@@ -91,7 +94,7 @@ func (s *mockIcebergRESTServerTable) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `{"metadata-location": "...", "metadata": {"properties":{}}}`)
+			fmt.Fprintf(w, `{"metadata-location": "...", "metadata": {"format-version": 2, "schema": {"type": "struct", "schema-id": 0, "fields": [{"id": 1, "name": "id", "required": true, "type": "long"}, {"id": 2, "name": "data", "required": false, "type": "string"}]}, "properties":{}}}`)
 
 		case http.MethodDelete: // Drop table
 			tableName := parts[4]
@@ -115,6 +118,23 @@ func testAccIcebergTableResourceConfig(providerCfg string, tableName string) str
 resource "iceberg_table" "test" {
   namespace = ["db1"]
   name      = "%s"
+  schema = {
+    id = 0
+    fields = [
+      {
+        id       = 1
+        name     = "id"
+        type     = "long"
+        required = true
+      },
+      {
+        id       = 2
+        name     = "data"
+        type     = "string"
+        required = false
+      }
+    ]
+  }
 }
 `, tableName)
 }

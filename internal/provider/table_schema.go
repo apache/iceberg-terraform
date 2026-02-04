@@ -1,23 +1,10 @@
-// Licensed to the Apache Software Foundation (ASF) under one or more
-// contributor license agreements.  See the NOTICE file distributed with
-// this work for additional information regarding copyright ownership.
-// The ASF licenses this file to You under the Apache License, Version 2.0
-// (the "License"); you may not use this file except in compliance with
-// the License.  You may obtain a copy of the License at
-//
-//    http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package provider
 
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strconv"
 
 	"github.com/apache/iceberg-go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -42,44 +29,60 @@ func (icebergTableSchema) AttrTypes() map[string]attr.Type {
 }
 
 type icebergTableSchemaField struct {
-	ID       types.Int64                 `tfsdk:"id"`
-	Name     types.String                `tfsdk:"name"`
-	Type     icebergTableSchemaFieldType `tfsdk:"type"`
-	Required types.Bool                  `tfsdk:"required"`
-	Doc      types.String                `tfsdk:"doc"`
+	ID                types.Int64  `tfsdk:"id"`
+	Name              types.String `tfsdk:"name"`
+	Type              types.String `tfsdk:"type"`
+	Required          types.Bool   `tfsdk:"required"`
+	Doc               types.String `tfsdk:"doc"`
+	DecimalProperties types.Object `tfsdk:"decimal_properties"`
+	FixedProperties   types.Object `tfsdk:"fixed_properties"`
+	ListProperties    types.Object `tfsdk:"list_properties"`
+	MapProperties     types.Object `tfsdk:"map_properties"`
 }
 
 func (icebergTableSchemaField) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
-		"id":       types.Int64Type,
-		"name":     types.StringType,
-		"type":     types.ObjectType{AttrTypes: icebergTableSchemaFieldType{}.AttrTypes()},
-		"required": types.BoolType,
-		"doc":      types.StringType,
+		"id":                 types.Int64Type,
+		"name":               types.StringType,
+		"type":               types.StringType,
+		"required":           types.BoolType,
+		"doc":                types.StringType,
+		"decimal_properties": types.ObjectType{AttrTypes: icebergTableSchemaFieldDecimalProperties{}.AttrTypes()},
+		"fixed_properties":   types.ObjectType{AttrTypes: icebergTableSchemaFieldFixedProperties{}.AttrTypes()},
+		"list_properties":    types.ObjectType{AttrTypes: icebergTableSchemaFieldListProperties{}.AttrTypes()},
+		"map_properties":     types.ObjectType{AttrTypes: icebergTableSchemaFieldMapProperties{}.AttrTypes()},
 	}
 }
 
-type icebergTableSchemaFieldType struct {
-	Primitive types.String `tfsdk:"primitive"`
-	List      types.Object `tfsdk:"list"`
-	Map       types.Object `tfsdk:"map"`
+type icebergTableSchemaFieldDecimalProperties struct {
+	Precision types.Int64 `tfsdk:"precision"`
+	Scale     types.Int64 `tfsdk:"scale"`
 }
 
-func (icebergTableSchemaFieldType) AttrTypes() map[string]attr.Type {
+func (icebergTableSchemaFieldDecimalProperties) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
-		"primitive": types.StringType,
-		"list":      types.ObjectType{AttrTypes: icebergTableSchemaFieldTypeList{}.AttrTypes()},
-		"map":       types.ObjectType{AttrTypes: icebergTableSchemaFieldTypeMap{}.AttrTypes()},
+		"precision": types.Int64Type,
+		"scale":     types.Int64Type,
 	}
 }
 
-type icebergTableSchemaFieldTypeList struct {
+type icebergTableSchemaFieldFixedProperties struct {
+	Length types.Int64 `tfsdk:"length"`
+}
+
+func (icebergTableSchemaFieldFixedProperties) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"length": types.Int64Type,
+	}
+}
+
+type icebergTableSchemaFieldListProperties struct {
 	ElementID       types.Int64  `tfsdk:"element_id"`
 	ElementType     types.String `tfsdk:"element_type"`
 	ElementRequired types.Bool   `tfsdk:"element_required"`
 }
 
-func (icebergTableSchemaFieldTypeList) AttrTypes() map[string]attr.Type {
+func (icebergTableSchemaFieldListProperties) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
 		"element_id":       types.Int64Type,
 		"element_type":     types.StringType,
@@ -87,7 +90,7 @@ func (icebergTableSchemaFieldTypeList) AttrTypes() map[string]attr.Type {
 	}
 }
 
-type icebergTableSchemaFieldTypeMap struct {
+type icebergTableSchemaFieldMapProperties struct {
 	KeyID         types.Int64  `tfsdk:"key_id"`
 	KeyType       types.String `tfsdk:"key_type"`
 	ValueID       types.Int64  `tfsdk:"value_id"`
@@ -95,7 +98,7 @@ type icebergTableSchemaFieldTypeMap struct {
 	ValueRequired types.Bool   `tfsdk:"value_required"`
 }
 
-func (icebergTableSchemaFieldTypeMap) AttrTypes() map[string]attr.Type {
+func (icebergTableSchemaFieldMapProperties) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
 		"key_id":         types.Int64Type,
 		"key_type":       types.StringType,
@@ -105,56 +108,84 @@ func (icebergTableSchemaFieldTypeMap) AttrTypes() map[string]attr.Type {
 	}
 }
 
-func terraformTypeToIcebergType(typ icebergTableSchemaFieldType) (iceberg.Type, error) {
-	if !typ.Primitive.IsNull() {
-		return stringToType(typ.Primitive.ValueString())
-	}
-
-	if !typ.List.IsNull() {
-		var list icebergTableSchemaFieldTypeList
-		if err := typ.List.As(context.Background(), &list, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse list type")
+func terraformToIcebergType(field icebergTableSchemaField) (iceberg.Type, error) {
+	typeStr := field.Type.ValueString()
+	switch typeStr {
+	case "list":
+		if field.ListProperties.IsNull() || field.ListProperties.IsUnknown() {
+			return nil, errors.New("list_properties must be set for list type")
 		}
-
-		elemType, err := stringToType(list.ElementType.ValueString())
+		var listProps icebergTableSchemaFieldListProperties
+		if err := field.ListProperties.As(context.Background(), &listProps, basetypes.ObjectAsOptions{}); err.HasError() {
+			return nil, errors.New("failed to parse list_properties")
+		}
+		elemType, err := stringToType(listProps.ElementType.ValueString())
 		if err != nil {
 			return nil, err
 		}
-
 		return &iceberg.ListType{
-			ElementID:       int(list.ElementID.ValueInt64()),
+			ElementID:       int(listProps.ElementID.ValueInt64()),
 			Element:         elemType,
-			ElementRequired: list.ElementRequired.ValueBool(),
+			ElementRequired: listProps.ElementRequired.ValueBool(),
 		}, nil
-	}
 
-	if !typ.Map.IsNull() {
-		var m icebergTableSchemaFieldTypeMap
-		if err := typ.Map.As(context.Background(), &m, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse map type")
+	case "map":
+		if field.MapProperties.IsNull() || field.MapProperties.IsUnknown() {
+			return nil, errors.New("map_properties must be set for map type")
 		}
-
-		keyType, err := stringToType(m.KeyType.ValueString())
+		var mapProps icebergTableSchemaFieldMapProperties
+		if err := field.MapProperties.As(context.Background(), &mapProps, basetypes.ObjectAsOptions{}); err.HasError() {
+			return nil, errors.New("failed to parse map_properties")
+		}
+		keyType, err := stringToType(mapProps.KeyType.ValueString())
 		if err != nil {
 			return nil, err
 		}
-
-		valueType, err := stringToType(m.ValueType.ValueString())
+		valueType, err := stringToType(mapProps.ValueType.ValueString())
 		if err != nil {
 			return nil, err
 		}
-
 		return &iceberg.MapType{
-			KeyID:         int(m.KeyID.ValueInt64()),
+			KeyID:         int(mapProps.KeyID.ValueInt64()),
 			KeyType:       keyType,
-			ValueID:       int(m.ValueID.ValueInt64()),
+			ValueID:       int(mapProps.ValueID.ValueInt64()),
 			ValueType:     valueType,
-			ValueRequired: m.ValueRequired.ValueBool(),
+			ValueRequired: mapProps.ValueRequired.ValueBool(),
 		}, nil
+
+	case "decimal":
+		if field.DecimalProperties.IsNull() || field.DecimalProperties.IsUnknown() {
+			return nil, errors.New("decimal_properties must be set for decimal type")
+		}
+		var decProps icebergTableSchemaFieldDecimalProperties
+		if err := field.DecimalProperties.As(context.Background(), &decProps, basetypes.ObjectAsOptions{}); err.HasError() {
+			return nil, errors.New("failed to parse decimal_properties")
+		}
+		return iceberg.DecimalTypeOf(
+			int(decProps.Precision.ValueInt64()),
+			int(decProps.Scale.ValueInt64()),
+		), nil
+
+	case "fixed":
+		if field.FixedProperties.IsNull() || field.FixedProperties.IsUnknown() {
+			return nil, errors.New("fixed_properties must be set for fixed type")
+		}
+		var fixedProps icebergTableSchemaFieldFixedProperties
+		if err := field.FixedProperties.As(context.Background(), &fixedProps, basetypes.ObjectAsOptions{}); err.HasError() {
+			return nil, errors.New("failed to parse fixed_properties")
+		}
+		return iceberg.FixedTypeOf(
+			int(fixedProps.Length.ValueInt64()),
+		), nil
 	}
 
-	return nil, errors.New("unsupported type")
+	return stringToType(typeStr)
 }
+
+var (
+	decimalRegex = regexp.MustCompile(`^decimal\((\d+),\s*(\d+)\)$`)
+	fixedRegex   = regexp.MustCompile(`^fixed\((\d+)\)$`)
+)
 
 func stringToType(s string) (iceberg.Type, error) {
 	switch s {
@@ -168,8 +199,6 @@ func stringToType(s string) (iceberg.Type, error) {
 		return iceberg.Float32Type{}, nil
 	case "double":
 		return iceberg.Float64Type{}, nil
-	case "decimal":
-		return iceberg.DecimalType{}, nil
 	case "date":
 		return iceberg.DateType{}, nil
 	case "time":
@@ -182,223 +211,102 @@ func stringToType(s string) (iceberg.Type, error) {
 		return iceberg.StringType{}, nil
 	case "uuid":
 		return iceberg.UUIDType{}, nil
-	case "fixed":
-		return iceberg.FixedType{}, nil
 	case "binary":
 		return iceberg.BinaryType{}, nil
+	}
+
+	if matches := decimalRegex.FindStringSubmatch(s); matches != nil {
+		p, _ := strconv.Atoi(matches[1])
+		s, _ := strconv.Atoi(matches[2])
+		return iceberg.DecimalTypeOf(p, s), nil
+	}
+
+	if matches := fixedRegex.FindStringSubmatch(s); matches != nil {
+		l, _ := strconv.Atoi(matches[1])
+		return iceberg.FixedTypeOf(l), nil
 	}
 
 	return nil, errors.New("unsupported type: " + s)
 }
 
 func typeToString(t iceberg.Type) (string, error) {
-	switch t.(type) {
-	case iceberg.BooleanType:
-		return "boolean", nil
-	case iceberg.Int32Type:
-		return "int", nil
-	case iceberg.Int64Type:
-		return "long", nil
-	case iceberg.Float32Type:
-		return "float", nil
-	case iceberg.Float64Type:
-		return "double", nil
-	case iceberg.DecimalType:
-		return "decimal", nil
-	case iceberg.DateType:
-		return "date", nil
-	case iceberg.TimeType:
-		return "time", nil
-	case iceberg.TimestampType:
-		return "timestamp", nil
-	case iceberg.TimestampTzType:
-		return "timestamptz", nil
-	case iceberg.StringType:
-		return "string", nil
-	case iceberg.UUIDType:
-		return "uuid", nil
-	case iceberg.FixedType:
-		return "fixed", nil
-	case iceberg.BinaryType:
-		return "binary", nil
-	}
-	return "", errors.New("unsupported type or nested type inside list/map not supported by this provider version")
+	return t.String(), nil
 }
 
-func icebergTypeToTerraformType(t iceberg.Type) (attr.Value, error) {
-	switch typ := t.(type) {
-	case iceberg.BooleanType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("boolean"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.Int32Type:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("int"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.Int64Type:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("long"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.Float32Type:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("float"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.Float64Type:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("double"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
+func icebergToTerraformField(field iceberg.NestedField) (attr.Value, error) {
+	// Defaults
+	typeStr := field.Type.String()
+	decimalProps := types.ObjectNull(icebergTableSchemaFieldDecimalProperties{}.AttrTypes())
+	fixedProps := types.ObjectNull(icebergTableSchemaFieldFixedProperties{}.AttrTypes())
+	listProps := types.ObjectNull(icebergTableSchemaFieldListProperties{}.AttrTypes())
+	mapProps := types.ObjectNull(icebergTableSchemaFieldMapProperties{}.AttrTypes())
+
+	switch t := field.Type.(type) {
 	case iceberg.DecimalType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
+		typeStr = "decimal"
+		decimalProps = types.ObjectValueMust(
+			icebergTableSchemaFieldDecimalProperties{}.AttrTypes(),
 			map[string]attr.Value{
-				"primitive": types.StringValue("decimal"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
+				"precision": types.Int64Value(int64(t.Precision())),
+				"scale":     types.Int64Value(int64(t.Scale())),
 			},
-		), nil
-	case iceberg.DateType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("date"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.TimeType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("time"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.TimestampType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("timestamp"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.TimestampTzType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("timestamptz"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.StringType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("string"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
-	case iceberg.UUIDType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("uuid"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
+		)
 	case iceberg.FixedType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
+		typeStr = "fixed"
+		fixedProps = types.ObjectValueMust(
+			icebergTableSchemaFieldFixedProperties{}.AttrTypes(),
 			map[string]attr.Value{
-				"primitive": types.StringValue("fixed"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
+				"length": types.Int64Value(int64(t.Len())),
 			},
-		), nil
-	case iceberg.BinaryType:
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
-			map[string]attr.Value{
-				"primitive": types.StringValue("binary"),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map":       types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
-			},
-		), nil
+		)
 	case *iceberg.ListType:
-		elementType, err := typeToString(typ.Element)
+		typeStr = "list"
+		elemTypeStr, err := typeToString(t.Element)
 		if err != nil {
-			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
+			return nil, err
 		}
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
+		listProps = types.ObjectValueMust(
+			icebergTableSchemaFieldListProperties{}.AttrTypes(),
 			map[string]attr.Value{
-				"primitive": types.StringNull(),
-				"list": types.ObjectValueMust(
-					icebergTableSchemaFieldTypeList{}.AttrTypes(),
-					map[string]attr.Value{
-						"element_id":       types.Int64Value(int64(typ.ElementID)),
-						"element_type":     types.StringValue(elementType),
-						"element_required": types.BoolValue(typ.ElementRequired),
-					},
-				),
-				"map": types.ObjectNull(icebergTableSchemaFieldTypeMap{}.AttrTypes()),
+				"element_id":       types.Int64Value(int64(t.ElementID)),
+				"element_type":     types.StringValue(elemTypeStr),
+				"element_required": types.BoolValue(t.ElementRequired),
 			},
-		), nil
+		)
 	case *iceberg.MapType:
-		keyType, err := typeToString(typ.KeyType)
+		typeStr = "map"
+		keyTypeStr, err := typeToString(t.KeyType)
 		if err != nil {
-			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
+			return nil, err
 		}
-		valueType, err := typeToString(typ.ValueType)
+		valueTypeStr, err := typeToString(t.ValueType)
 		if err != nil {
-			return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), err
+			return nil, err
 		}
-		return types.ObjectValueMust(
-			icebergTableSchemaFieldType{}.AttrTypes(),
+		mapProps = types.ObjectValueMust(
+			icebergTableSchemaFieldMapProperties{}.AttrTypes(),
 			map[string]attr.Value{
-				"primitive": types.StringNull(),
-				"list":      types.ObjectNull(icebergTableSchemaFieldTypeList{}.AttrTypes()),
-				"map": types.ObjectValueMust(
-					icebergTableSchemaFieldTypeMap{}.AttrTypes(),
-					map[string]attr.Value{
-						"key_id":         types.Int64Value(int64(typ.KeyID)),
-						"key_type":       types.StringValue(keyType),
-						"value_id":       types.Int64Value(int64(typ.ValueID)),
-						"value_type":     types.StringValue(valueType),
-						"value_required": types.BoolValue(typ.ValueRequired),
-					},
-				),
+				"key_id":         types.Int64Value(int64(t.KeyID)),
+				"key_type":       types.StringValue(keyTypeStr),
+				"value_id":       types.Int64Value(int64(t.ValueID)),
+				"value_type":     types.StringValue(valueTypeStr),
+				"value_required": types.BoolValue(t.ValueRequired),
 			},
-		), nil
+		)
 	}
-	return types.ObjectNull(icebergTableSchemaFieldType{}.AttrTypes()), errors.New("unsupported type: " + t.String())
+
+	return types.ObjectValueMust(
+		icebergTableSchemaField{}.AttrTypes(),
+		map[string]attr.Value{
+			"id":                 types.Int64Value(int64(field.ID)),
+			"name":               types.StringValue(field.Name),
+			"type":               types.StringValue(typeStr),
+			"required":           types.BoolValue(field.Required),
+			"doc":                types.StringValue(field.Doc),
+			"decimal_properties": decimalProps,
+			"fixed_properties":   fixedProps,
+			"list_properties":    listProps,
+			"map_properties":     mapProps,
+		},
+	), nil
 }
