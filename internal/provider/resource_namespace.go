@@ -43,8 +43,8 @@ func NewNamespaceResource() resource.Resource {
 type icebergNamespaceResourceModel struct {
 	ID             types.String `tfsdk:"id"`
 	Name           types.List   `tfsdk:"name"`
-	Properties     types.Map    `tfsdk:"properties"`
-	FullProperties types.Map    `tfsdk:"full_properties"`
+	UserProperties types.Map    `tfsdk:"user_properties"`
+	ServerProperties types.Map `tfsdk:"server_properties"`
 }
 
 type icebergNamespaceResource struct {
@@ -74,12 +74,12 @@ func (r *icebergNamespaceResource) Schema(_ context.Context, _ resource.SchemaRe
 					listplanmodifier.RequiresReplace(),
 				},
 			},
-			"properties": schema.MapAttribute{
+			"user_properties": schema.MapAttribute{
 				Description: "User-defined properties for the namespace. Only properties listed in Terraform will be changed. All others on the server will stay the same",
 				Optional:    true,
 				ElementType: types.StringType,
 			},
-			"full_properties": schema.MapAttribute{
+			"server_properties": schema.MapAttribute{
 				Description: "Full properties returned by the server for the namespace. This includes properties set by the user and properties set by the server.",
 				Computed:    true,
 				ElementType: types.StringType,
@@ -153,16 +153,16 @@ func (r *icebergNamespaceResource) Create(ctx context.Context, req resource.Crea
 
 	namespaceIdent := catalog.ToIdentifier(namespaceName...)
 
-	properties := make(map[string]string)
-	if !data.Properties.IsNull() {
-		diags = data.Properties.ElementsAs(ctx, &properties, false)
+	userProperties := make(map[string]string)
+	if !data.UserProperties.IsNull() {
+		diags = data.UserProperties.ElementsAs(ctx, &userProperties, false)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 	}
 
-	err := r.catalog.CreateNamespace(ctx, namespaceIdent, properties)
+	err := r.catalog.CreateNamespace(ctx, namespaceIdent, userProperties)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create namespace", err.Error())
 		return
@@ -176,26 +176,26 @@ func (r *icebergNamespaceResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	// Update FullProperties with everything from the server
+	// Update ServerProperties with everything from the server
 	loadedFullProperties, diags := types.MapValueFrom(ctx, types.StringType, nsProps)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	data.FullProperties = loadedFullProperties
+	data.ServerProperties = loadedFullProperties
 
-	// Update Properties to match what we sent/expected, but values confirmed from server
+	// Update UserProperties to match what we sent/expected, but values confirmed from server
 	// We only keep keys that were in the original plan (User managed)
 	managedProps := make(map[string]string)
-	for k := range properties {
+	for k := range userProperties {
 		if v, ok := nsProps[k]; ok {
 			managedProps[k] = v
 		}
 	}
-	// If the user didn't set any properties, Properties should be null or empty based on input.
+	// If the user didn't set any properties, UserProperties should be null or empty based on input.
 	// However, if we sent it, we expect it back.
-	if !data.Properties.IsNull() {
-		data.Properties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
+	if !data.UserProperties.IsNull() {
+		data.UserProperties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
 		resp.Diagnostics.Append(diags...)
 	}
 
@@ -238,18 +238,18 @@ func (r *icebergNamespaceResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	// FullProperties gets everything
+	// ServerProperties gets everything
 	fullProperties, diags := types.MapValueFrom(ctx, types.StringType, nsProps)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	data.FullProperties = fullProperties
+	data.ServerProperties = fullProperties
 
-	// Properties only updates keys that are already tracked in the state
-	if !data.Properties.IsNull() {
+	// UserProperties only updates keys that are already tracked in the state
+	if !data.UserProperties.IsNull() {
 		stateProperties := make(map[string]string)
-		diags = data.Properties.ElementsAs(ctx, &stateProperties, false)
+		diags = data.UserProperties.ElementsAs(ctx, &stateProperties, false)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
@@ -263,7 +263,7 @@ func (r *icebergNamespaceResource) Read(ctx context.Context, req resource.ReadRe
 			// If key is missing in nsProps, it was removed from server, so we drop it from managedProps
 			// which effectively sets it to null/removed in the new state, matching reality.
 		}
-		data.Properties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
+		data.UserProperties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
 		resp.Diagnostics.Append(diags...)
 	}
 
@@ -294,15 +294,15 @@ func (r *icebergNamespaceResource) Update(ctx context.Context, req resource.Upda
 
 	// Get current state properties
 	stateProps := make(map[string]string)
-	if !state.Properties.IsNull() {
-		diags = state.Properties.ElementsAs(ctx, &stateProps, false)
+	if !state.UserProperties.IsNull() {
+		diags = state.UserProperties.ElementsAs(ctx, &stateProps, false)
 		resp.Diagnostics.Append(diags...)
 	}
 
 	// Get plan properties
 	planProps := make(map[string]string)
-	if !plan.Properties.IsNull() {
-		diags = plan.Properties.ElementsAs(ctx, &planProps, false)
+	if !plan.UserProperties.IsNull() {
+		diags = plan.UserProperties.ElementsAs(ctx, &planProps, false)
 		resp.Diagnostics.Append(diags...)
 	}
 
@@ -349,24 +349,24 @@ func (r *icebergNamespaceResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	// Update FullProperties
+	// Update ServerProperties
 	loadedFullProperties, diags := types.MapValueFrom(ctx, types.StringType, nsProps)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	plan.FullProperties = loadedFullProperties
+	plan.ServerProperties = loadedFullProperties
 
-	// Update Properties to match reality for tracked keys
-	// We reconstruct plan.Properties to ensure it reflects what's actually on the server for the keys we care about
+	// Update UserProperties to match reality for tracked keys
+	// We reconstruct plan.UserProperties to ensure it reflects what's actually on the server for the keys we care about
 	managedProps := make(map[string]string)
 	for k := range planProps {
 		if v, ok := nsProps[k]; ok {
 			managedProps[k] = v
 		}
 	}
-	if !plan.Properties.IsNull() {
-		plan.Properties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
+	if !plan.UserProperties.IsNull() {
+		plan.UserProperties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
 		resp.Diagnostics.Append(diags...)
 	}
 

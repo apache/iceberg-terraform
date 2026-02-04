@@ -41,15 +41,17 @@ func New() func() provider.Provider {
 
 // icebergProvider is the provider implementation.
 type icebergProvider struct {
-	catalogURI string
-	token      string
-	warehouse  string
-	headers    map[string]string
+	catalogURI  string
+	catalogType string
+	token       string
+	warehouse   string
+	headers     map[string]string
 }
 
 // icebergProviderModel maps provider schema data to a Go type.
 type icebergProviderModel struct {
 	CatalogURI types.String `tfsdk:"catalog_uri"`
+	Type       types.String `tfsdk:"type"`
 	Token      types.String `tfsdk:"token"`
 	Warehouse  types.String `tfsdk:"warehouse"`
 	Headers    types.Map    `tfsdk:"headers"`
@@ -63,14 +65,17 @@ func (p *icebergProvider) Metadata(_ context.Context, _ provider.MetadataRequest
 // Schema defines the provider-level schema for configuration data.
 func (p *icebergProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Use OpenTofu to interact with Iceberg REST Catalog instances.",
-		Attributes: map[string]schema.Attribute{
-			"catalog_uri": schema.StringAttribute{
-				Description: "The URI of the Iceberg REST catalog.",
-				Required:    true,
-			},
-			"token": schema.StringAttribute{
-				Description: "The token to use for authentication.",
+		Description: "Use Terraform to interact with Iceberg REST Catalog instances.",
+				Attributes: map[string]schema.Attribute{
+					"catalog_uri": schema.StringAttribute{
+						Description: "The URI of the Iceberg REST catalog.",
+						Required:    true,
+					},
+					"type": schema.StringAttribute{
+						Description: "The type of catalog to use. Currently only 'rest' is supported.",
+						Optional:    true,
+					},
+					"token": schema.StringAttribute{				Description: "The token to use for authentication.",
 				Optional:    true,
 				Sensitive:   true,
 			},
@@ -104,6 +109,20 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 	}
 
 	p.catalogURI = data.CatalogURI.ValueString()
+
+	if !data.Type.IsNull() && !data.Type.IsUnknown() {
+		p.catalogType = data.Type.ValueString()
+	} else {
+		p.catalogType = "rest"
+	}
+
+	if p.catalogType != "rest" {
+		resp.Diagnostics.AddError(
+			"Unsupported Catalog Type",
+			"The provider currently only supports the 'rest' catalog type. Got: "+p.catalogType,
+		)
+		return
+	}
 
 	if !data.Token.IsNull() && !data.Token.IsUnknown() {
 		p.token = data.Token.ValueString()
@@ -139,7 +158,7 @@ func (p *icebergProvider) NewCatalog(ctx context.Context) (catalog.Catalog, erro
 
 	opts = append(opts, rest.WithCustomTransport(&headerRoundTripper{headers: p.headers}))
 
-	return rest.NewCatalog(ctx, "rest", p.catalogURI, opts...)
+	return rest.NewCatalog(ctx, p.catalogType, p.catalogURI, opts...)
 }
 
 type headerRoundTripper struct {

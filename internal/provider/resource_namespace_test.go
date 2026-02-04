@@ -56,24 +56,24 @@ func TestAccIcebergNamespace(t *testing.T) {
 				Config: testAccIcebergNamespaceResourceConfig(providerCfg, "test description"),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("iceberg_namespace.test", "name.0", "db1"),
-					resource.TestCheckResourceAttr("iceberg_namespace.test", "properties.description", "test description"),
-					resource.TestCheckResourceAttr("iceberg_namespace.test", "full_properties.description", "test description"),
+					resource.TestCheckResourceAttr("iceberg_namespace.test", "user_properties.description", "test description"),
+					resource.TestCheckResourceAttr("iceberg_namespace.test", "server_properties.description", "test description"),
 				),
 			},
 			{
 				Config: testAccIcebergNamespaceResourceConfig(providerCfg, "updated description"),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("iceberg_namespace.test", "name.0", "db1"),
-					resource.TestCheckResourceAttr("iceberg_namespace.test", "properties.description", "updated description"),
-					resource.TestCheckResourceAttr("iceberg_namespace.test", "full_properties.description", "updated description"),
+					resource.TestCheckResourceAttr("iceberg_namespace.test", "user_properties.description", "updated description"),
+					resource.TestCheckResourceAttr("iceberg_namespace.test", "server_properties.description", "updated description"),
 				),
 			},
 			{
 				Config: testAccIcebergNamespaceResourceConfig(providerCfg, ""),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("iceberg_namespace.test", "name.0", "db1"),
-					resource.TestCheckNoResourceAttr("iceberg_namespace.test", "properties.description"),
-					resource.TestCheckNoResourceAttr("iceberg_namespace.test", "full_properties.description"),
+					resource.TestCheckNoResourceAttr("iceberg_namespace.test", "user_properties.description"),
+					resource.TestCheckNoResourceAttr("iceberg_namespace.test", "server_properties.description"),
 				),
 			},
 		},
@@ -83,7 +83,7 @@ func TestAccIcebergNamespace(t *testing.T) {
 func testAccIcebergNamespaceResourceConfig(providerCfg string, description string) string {
 	propsStr := ""
 	if description != "" {
-		propsStr = fmt.Sprintf(`properties = {
+		propsStr = fmt.Sprintf(`user_properties = {
     description = "%s"
   }`, description)
 	}
