@@ -295,6 +295,11 @@ func icebergToTerraformField(field iceberg.NestedField) (attr.Value, error) {
 		)
 	}
 
+	doc := types.StringValue(field.Doc)
+	if field.Doc == "" {
+		doc = types.StringNull()
+	}
+
 	return types.ObjectValueMust(
 		icebergTableSchemaField{}.AttrTypes(),
 		map[string]attr.Value{
@@ -302,7 +307,7 @@ func icebergToTerraformField(field iceberg.NestedField) (attr.Value, error) {
 			"name":               types.StringValue(field.Name),
 			"type":               types.StringValue(typeStr),
 			"required":           types.BoolValue(field.Required),
-			"doc":                types.StringValue(field.Doc),
+			"doc":                doc,
 			"decimal_properties": decimalProps,
 			"fixed_properties":   fixedProps,
 			"list_properties":    listProps,
