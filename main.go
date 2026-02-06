@@ -19,7 +19,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/apache/terraform-provider-iceberg/internal/provider"
+	"github.com/apache/iceberg-terraform/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
 
