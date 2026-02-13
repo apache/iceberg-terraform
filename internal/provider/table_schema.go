@@ -16,23 +16,19 @@
 package provider
 
 import (
-	"context"
-	"errors"
-	"regexp"
-	"strconv"
+	"encoding/json"
 
 	"github.com/apache/iceberg-go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 type icebergTableSchema struct {
-	ID     types.Int64    `tfsdk:"id"`
-	Fields []types.Object `tfsdk:"fields"`
+	ID     types.Int64               `tfsdk:"id" json:"schema-id"`
+	Fields []icebergTableSchemaField `tfsdk:"fields" json:"fields"`
 }
 
-func (icebergTableSchema) AttrTypes() map[string]attr.Type {
+func (s icebergTableSchema) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
 		"id": types.Int64Type,
 		"fields": types.ListType{
@@ -43,15 +39,69 @@ func (icebergTableSchema) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (s icebergTableSchema) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		ID     int64                     `json:"schema-id"`
+		Fields []icebergTableSchemaField `json:"fields"`
+	}
+	var id int64
+	if !s.ID.IsNull() && !s.ID.IsUnknown() {
+		id = s.ID.ValueInt64()
+	}
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		Alias
+	}{
+		Type: "struct",
+		Alias: Alias{
+			ID:     id,
+			Fields: s.Fields,
+		},
+	})
+}
+
+func (s *icebergTableSchema) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		ID     int64                     `json:"schema-id"`
+		Fields []icebergTableSchemaField `json:"fields"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.ID = types.Int64Value(raw.ID)
+	s.Fields = raw.Fields
+	return nil
+}
+
+func (s *icebergTableSchema) ToIceberg() (*iceberg.Schema, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	var icebergSchema iceberg.Schema
+	if err := json.Unmarshal(b, &icebergSchema); err != nil {
+		return nil, err
+	}
+	return &icebergSchema, nil
+}
+
+func (s *icebergTableSchema) FromIceberg(icebergSchema *iceberg.Schema) error {
+	b, err := json.Marshal(icebergSchema)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, s)
+}
+
 type icebergTableSchemaField struct {
-	ID               types.Int64  `tfsdk:"id"`
-	Name             types.String `tfsdk:"name"`
-	Type             types.String `tfsdk:"type"`
-	Required         types.Bool   `tfsdk:"required"`
-	Doc              types.String `tfsdk:"doc"`
-	ListProperties   types.Object `tfsdk:"list_properties"`
-	MapProperties    types.Object `tfsdk:"map_properties"`
-	StructProperties types.Object `tfsdk:"struct_properties"`
+	ID               types.Int64                              `tfsdk:"id" json:"id"`
+	Name             string                                   `tfsdk:"name" json:"name"`
+	Type             string                                   `tfsdk:"type" json:"-"`
+	Required         bool                                     `tfsdk:"required" json:"required"`
+	Doc              *string                                  `tfsdk:"doc" json:"doc,omitempty"`
+	ListProperties   *icebergTableSchemaFieldListProperties   `tfsdk:"list_properties" json:"-"`
+	MapProperties    *icebergTableSchemaFieldMapProperties    `tfsdk:"map_properties" json:"-"`
+	StructProperties *icebergTableSchemaFieldStructProperties `tfsdk:"struct_properties" json:"-"`
 }
 
 func (icebergTableSchemaField) AttrTypes() map[string]attr.Type {
@@ -67,15 +117,23 @@ func (icebergTableSchemaField) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (f icebergTableSchemaField) MarshalJSON() ([]byte, error) {
+	return marshalFieldJSON(f.ID, f.Name, f.Type, f.Required, f.Doc, f.ListProperties, f.MapProperties, f.StructProperties)
+}
+
+func (f *icebergTableSchemaField) UnmarshalJSON(b []byte) error {
+	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &f.StructProperties)
+}
+
 type icebergTableSchemaInnerField struct {
-	ID               types.Int64  `tfsdk:"id"`
-	Name             types.String `tfsdk:"name"`
-	Type             types.String `tfsdk:"type"`
-	Required         types.Bool   `tfsdk:"required"`
-	Doc              types.String `tfsdk:"doc"`
-	ListProperties   types.Object `tfsdk:"list_properties"`
-	MapProperties    types.Object `tfsdk:"map_properties"`
-	StructProperties types.Object `tfsdk:"struct_properties"`
+	ID               types.Int64                              `tfsdk:"id" json:"id"`
+	Name             string                                   `tfsdk:"name" json:"name"`
+	Type             string                                   `tfsdk:"type" json:"-"`
+	Required         bool                                     `tfsdk:"required" json:"required"`
+	Doc              *string                                  `tfsdk:"doc" json:"doc,omitempty"`
+	ListProperties   *icebergTableSchemaFieldListProperties   `tfsdk:"list_properties" json:"-"`
+	MapProperties    *icebergTableSchemaFieldMapProperties    `tfsdk:"map_properties" json:"-"`
+	StructProperties *icebergTableSchemaInnerStructProperties `tfsdk:"struct_properties" json:"-"`
 }
 
 func (icebergTableSchemaInnerField) AttrTypes() map[string]attr.Type {
@@ -91,15 +149,22 @@ func (icebergTableSchemaInnerField) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (f icebergTableSchemaInnerField) MarshalJSON() ([]byte, error) {
+	return marshalFieldJSON(f.ID, f.Name, f.Type, f.Required, f.Doc, f.ListProperties, f.MapProperties, f.StructProperties)
+}
+
+func (f *icebergTableSchemaInnerField) UnmarshalJSON(b []byte) error {
+	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &f.StructProperties)
+}
+
 type icebergTableSchemaLeafField struct {
-	ID             types.Int64  `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	Type           types.String `tfsdk:"type"`
-	Required       types.Bool   `tfsdk:"required"`
-	Doc            types.String `tfsdk:"doc"`
-	ListProperties types.Object `tfsdk:"list_properties"`
-	MapProperties  types.Object `tfsdk:"map_properties"`
-	// No StructProperties to break recursion
+	ID             types.Int64                            `tfsdk:"id" json:"id"`
+	Name           string                                 `tfsdk:"name" json:"name"`
+	Type           string                                 `tfsdk:"type" json:"-"`
+	Required       bool                                   `tfsdk:"required" json:"required"`
+	Doc            *string                                `tfsdk:"doc" json:"doc,omitempty"`
+	ListProperties *icebergTableSchemaFieldListProperties `tfsdk:"list_properties" json:"-"`
+	MapProperties  *icebergTableSchemaFieldMapProperties  `tfsdk:"map_properties" json:"-"`
 }
 
 func (icebergTableSchemaLeafField) AttrTypes() map[string]attr.Type {
@@ -114,10 +179,19 @@ func (icebergTableSchemaLeafField) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (f icebergTableSchemaLeafField) MarshalJSON() ([]byte, error) {
+	return marshalFieldJSON(f.ID, f.Name, f.Type, f.Required, f.Doc, f.ListProperties, f.MapProperties, nil)
+}
+
+func (f *icebergTableSchemaLeafField) UnmarshalJSON(b []byte) error {
+	var structProps *json.RawMessage // unused for leaf
+	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &structProps)
+}
+
 type icebergTableSchemaFieldListProperties struct {
-	ElementID       types.Int64  `tfsdk:"element_id"`
-	ElementType     types.String `tfsdk:"element_type"`
-	ElementRequired types.Bool   `tfsdk:"element_required"`
+	ElementID       types.Int64 `tfsdk:"element_id" json:"element-id"`
+	ElementType     string      `tfsdk:"element_type" json:"element"`
+	ElementRequired bool        `tfsdk:"element_required" json:"element-required"`
 }
 
 func (icebergTableSchemaFieldListProperties) AttrTypes() map[string]attr.Type {
@@ -128,12 +202,45 @@ func (icebergTableSchemaFieldListProperties) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (p icebergTableSchemaFieldListProperties) MarshalJSON() ([]byte, error) {
+	var elementID int64
+	if !p.ElementID.IsNull() && !p.ElementID.IsUnknown() {
+		elementID = p.ElementID.ValueInt64()
+	}
+	return json.Marshal(struct {
+		Type            string `json:"type"`
+		ElementID       int64  `json:"element-id"`
+		ElementType     string `json:"element"`
+		ElementRequired bool   `json:"element-required"`
+	}{
+		Type:            "list",
+		ElementID:       elementID,
+		ElementType:     p.ElementType,
+		ElementRequired: p.ElementRequired,
+	})
+}
+
+func (p *icebergTableSchemaFieldListProperties) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		ElementID       int64  `json:"element-id"`
+		ElementType     string `json:"element"`
+		ElementRequired bool   `json:"element-required"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	p.ElementID = types.Int64Value(raw.ElementID)
+	p.ElementType = raw.ElementType
+	p.ElementRequired = raw.ElementRequired
+	return nil
+}
+
 type icebergTableSchemaFieldMapProperties struct {
-	KeyID         types.Int64  `tfsdk:"key_id"`
-	KeyType       types.String `tfsdk:"key_type"`
-	ValueID       types.Int64  `tfsdk:"value_id"`
-	ValueType     types.String `tfsdk:"value_type"`
-	ValueRequired types.Bool   `tfsdk:"value_required"`
+	KeyID         types.Int64 `tfsdk:"key_id" json:"key-id"`
+	KeyType       string      `tfsdk:"key_type" json:"key"`
+	ValueID       types.Int64 `tfsdk:"value_id" json:"value-id"`
+	ValueType     string      `tfsdk:"value_type" json:"value"`
+	ValueRequired bool        `tfsdk:"value_required" json:"value-required"`
 }
 
 func (icebergTableSchemaFieldMapProperties) AttrTypes() map[string]attr.Type {
@@ -146,8 +253,52 @@ func (icebergTableSchemaFieldMapProperties) AttrTypes() map[string]attr.Type {
 	}
 }
 
+func (p icebergTableSchemaFieldMapProperties) MarshalJSON() ([]byte, error) {
+	var keyID, valueID int64
+	if !p.KeyID.IsNull() && !p.KeyID.IsUnknown() {
+		keyID = p.KeyID.ValueInt64()
+	}
+	if !p.ValueID.IsNull() && !p.ValueID.IsUnknown() {
+		valueID = p.ValueID.ValueInt64()
+	}
+	return json.Marshal(struct {
+		Type          string `json:"type"`
+		KeyID         int64  `json:"key-id"`
+		KeyType       string `json:"key"`
+		ValueID       int64  `json:"value-id"`
+		ValueType     string `json:"value"`
+		ValueRequired bool   `json:"value-required"`
+	}{
+		Type:          "map",
+		KeyID:         keyID,
+		KeyType:       p.KeyType,
+		ValueID:       valueID,
+		ValueType:     p.ValueType,
+		ValueRequired: p.ValueRequired,
+	})
+}
+
+func (p *icebergTableSchemaFieldMapProperties) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		KeyID         int64  `json:"key-id"`
+		KeyType       string `json:"key"`
+		ValueID       int64  `json:"value-id"`
+		ValueType     string `json:"value"`
+		ValueRequired bool   `json:"value-required"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	p.KeyID = types.Int64Value(raw.KeyID)
+	p.KeyType = raw.KeyType
+	p.ValueID = types.Int64Value(raw.ValueID)
+	p.ValueType = raw.ValueType
+	p.ValueRequired = raw.ValueRequired
+	return nil
+}
+
 type icebergTableSchemaFieldStructProperties struct {
-	Fields types.List `tfsdk:"fields"`
+	Fields []icebergTableSchemaInnerField `tfsdk:"fields" json:"fields"`
 }
 
 func (icebergTableSchemaFieldStructProperties) AttrTypes() map[string]attr.Type {
@@ -160,8 +311,29 @@ func (icebergTableSchemaFieldStructProperties) AttrTypes() map[string]attr.Type 
 	}
 }
 
+func (s icebergTableSchemaFieldStructProperties) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type   string                         `json:"type"`
+		Fields []icebergTableSchemaInnerField `json:"fields"`
+	}{
+		Type:   "struct",
+		Fields: s.Fields,
+	})
+}
+
+func (s *icebergTableSchemaFieldStructProperties) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Fields []icebergTableSchemaInnerField `json:"fields"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.Fields = raw.Fields
+	return nil
+}
+
 type icebergTableSchemaInnerStructProperties struct {
-	Fields types.List `tfsdk:"fields"`
+	Fields []icebergTableSchemaLeafField `tfsdk:"fields" json:"fields"`
 }
 
 func (icebergTableSchemaInnerStructProperties) AttrTypes() map[string]attr.Type {
@@ -174,351 +346,103 @@ func (icebergTableSchemaInnerStructProperties) AttrTypes() map[string]attr.Type 
 	}
 }
 
-func terraformToIcebergType(typeStr string, listProps, mapProps, structProps types.Object) (iceberg.Type, error) {
+func (s icebergTableSchemaInnerStructProperties) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type   string                        `json:"type"`
+		Fields []icebergTableSchemaLeafField `json:"fields"`
+	}{
+		Type:   "struct",
+		Fields: s.Fields,
+	})
+}
+
+func (s *icebergTableSchemaInnerStructProperties) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Fields []icebergTableSchemaLeafField `json:"fields"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.Fields = raw.Fields
+	return nil
+}
+
+// Helpers for shared logic
+
+func marshalFieldJSON(id types.Int64, name, typeStr string, required bool, doc *string, listProps, mapProps, structProps interface{}) ([]byte, error) {
+	type Field struct {
+		ID       int64       `json:"id"`
+		Name     string      `json:"name"`
+		Type     interface{} `json:"type"`
+		Required bool        `json:"required"`
+		Doc      *string     `json:"doc,omitempty"`
+	}
+
+	var idVal int64
+	if !id.IsNull() && !id.IsUnknown() {
+		idVal = id.ValueInt64()
+	}
+
+	f := Field{
+		ID:       idVal,
+		Name:     name,
+		Required: required,
+		Doc:      doc,
+	}
+
 	switch typeStr {
 	case "list":
-		if listProps.IsNull() || listProps.IsUnknown() {
-			return nil, errors.New("list_properties must be set for list type")
-		}
-		var props icebergTableSchemaFieldListProperties
-		if err := listProps.As(context.Background(), &props, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse list_properties")
-		}
-		elemType, err := stringToType(props.ElementType.ValueString())
-		if err != nil {
-			return nil, err
-		}
-		return &iceberg.ListType{
-			ElementID:       int(props.ElementID.ValueInt64()),
-			Element:         elemType,
-			ElementRequired: props.ElementRequired.ValueBool(),
-		}, nil
-
+		f.Type = listProps
 	case "map":
-		if mapProps.IsNull() || mapProps.IsUnknown() {
-			return nil, errors.New("map_properties must be set for map type")
-		}
-		var props icebergTableSchemaFieldMapProperties
-		if err := mapProps.As(context.Background(), &props, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse map_properties")
-		}
-		keyType, err := stringToType(props.KeyType.ValueString())
-		if err != nil {
-			return nil, err
-		}
-		valueType, err := stringToType(props.ValueType.ValueString())
-		if err != nil {
-			return nil, err
-		}
-		return &iceberg.MapType{
-			KeyID:         int(props.KeyID.ValueInt64()),
-			KeyType:       keyType,
-			ValueID:       int(props.ValueID.ValueInt64()),
-			ValueType:     valueType,
-			ValueRequired: props.ValueRequired.ValueBool(),
-		}, nil
-
+		f.Type = mapProps
 	case "struct":
-		return nil, errors.New("struct type handled by caller")
+		f.Type = structProps
+	default:
+		f.Type = typeStr
 	}
 
-	return stringToType(typeStr)
+	return json.Marshal(f)
 }
 
-func convertIcebergTableSchemaField(field icebergTableSchemaField) (iceberg.Type, error) {
-	if field.Type.ValueString() == "struct" {
-		if field.StructProperties.IsNull() || field.StructProperties.IsUnknown() {
-			return nil, errors.New("struct_properties must be set for struct type")
-		}
-		var structProps icebergTableSchemaFieldStructProperties
-		if err := field.StructProperties.As(context.Background(), &structProps, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse struct_properties")
-		}
-
-		var innerFields []icebergTableSchemaInnerField
-		if err := structProps.Fields.ElementsAs(context.Background(), &innerFields, false); err.HasError() {
-			return nil, errors.New("failed to parse struct fields")
-		}
-
-		nestedFields := make([]iceberg.NestedField, len(innerFields))
-		for i, innerField := range innerFields {
-			typ, err := convertIcebergTableSchemaInnerField(innerField)
-			if err != nil {
-				return nil, err
-			}
-			nestedFields[i] = iceberg.NestedField{
-				ID:       int(innerField.ID.ValueInt64()),
-				Name:     innerField.Name.ValueString(),
-				Type:     typ,
-				Required: innerField.Required.ValueBool(),
-				Doc:      innerField.Doc.ValueString(),
-			}
-		}
-		return &iceberg.StructType{FieldList: nestedFields}, nil
+func unmarshalFieldJSON(b []byte, id *types.Int64, name, typeStr *string, required *bool, doc **string, listProps, mapProps, structProps interface{}) error {
+	var raw struct {
+		ID       int64           `json:"id"`
+		Name     string          `json:"name"`
+		Type     json.RawMessage `json:"type"`
+		Required bool            `json:"required"`
+		Doc      *string         `json:"doc"`
 	}
-	return terraformToIcebergType(field.Type.ValueString(), field.ListProperties, field.MapProperties, types.ObjectNull(map[string]attr.Type{}))
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*id = types.Int64Value(raw.ID)
+	*name = raw.Name
+	*required = raw.Required
+	*doc = raw.Doc
+
+	if len(raw.Type) > 0 && raw.Type[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw.Type, &s); err != nil {
+			return err
+		}
+		*typeStr = s
+	} else {
+		var typeObj struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw.Type, &typeObj); err != nil {
+			return err
+		}
+		*typeStr = typeObj.Type
+		switch typeObj.Type {
+		case "list":
+			return json.Unmarshal(raw.Type, listProps)
+		case "map":
+			return json.Unmarshal(raw.Type, mapProps)
+		case "struct":
+			return json.Unmarshal(raw.Type, structProps)
+		}
+	}
+	return nil
 }
 
-func convertIcebergTableSchemaInnerField(field icebergTableSchemaInnerField) (iceberg.Type, error) {
-	if field.Type.ValueString() == "struct" {
-		if field.StructProperties.IsNull() || field.StructProperties.IsUnknown() {
-			return nil, errors.New("struct_properties must be set for struct type")
-		}
-		var structProps icebergTableSchemaInnerStructProperties
-		if err := field.StructProperties.As(context.Background(), &structProps, basetypes.ObjectAsOptions{}); err.HasError() {
-			return nil, errors.New("failed to parse struct_properties")
-		}
-
-		var leafFields []icebergTableSchemaLeafField
-		if err := structProps.Fields.ElementsAs(context.Background(), &leafFields, false); err.HasError() {
-			return nil, errors.New("failed to parse struct fields")
-		}
-
-		nestedFields := make([]iceberg.NestedField, len(leafFields))
-		for i, leafField := range leafFields {
-			typ, err := convertIcebergTableSchemaLeafField(leafField)
-			if err != nil {
-				return nil, err
-			}
-			nestedFields[i] = iceberg.NestedField{
-				ID:       int(leafField.ID.ValueInt64()),
-				Name:     leafField.Name.ValueString(),
-				Type:     typ,
-				Required: leafField.Required.ValueBool(),
-				Doc:      leafField.Doc.ValueString(),
-			}
-		}
-		return &iceberg.StructType{FieldList: nestedFields}, nil
-	}
-	return terraformToIcebergType(field.Type.ValueString(), field.ListProperties, field.MapProperties, types.ObjectNull(map[string]attr.Type{}))
-}
-
-func convertIcebergTableSchemaLeafField(field icebergTableSchemaLeafField) (iceberg.Type, error) {
-	if field.Type.ValueString() == "struct" {
-		return nil, errors.New("maximum nesting depth reached (3 levels)")
-	}
-	return terraformToIcebergType(field.Type.ValueString(), field.ListProperties, field.MapProperties, types.ObjectNull(map[string]attr.Type{}))
-}
-
-var (
-	decimalRegex = regexp.MustCompile(`^decimal\((\d+),\s*(\d+)\)$`)
-	fixedRegex   = regexp.MustCompile(`^fixed\((\d+)\)$`)
-)
-
-func stringToType(s string) (iceberg.Type, error) {
-	switch s {
-	case "boolean":
-		return iceberg.BooleanType{}, nil
-	case "int":
-		return iceberg.Int32Type{}, nil
-	case "long":
-		return iceberg.Int64Type{}, nil
-	case "float":
-		return iceberg.Float32Type{}, nil
-	case "double":
-		return iceberg.Float64Type{}, nil
-	case "date":
-		return iceberg.DateType{}, nil
-	case "time":
-		return iceberg.TimeType{}, nil
-	case "timestamp":
-		return iceberg.TimestampType{}, nil
-	case "timestamptz":
-		return iceberg.TimestampTzType{}, nil
-	case "timestamp_ns":
-		return iceberg.TimestampNsType{}, nil
-	case "timestamptz_ns":
-		return iceberg.TimestampTzNsType{}, nil
-	case "string":
-		return iceberg.StringType{}, nil
-	case "uuid":
-		return iceberg.UUIDType{}, nil
-	case "binary":
-		return iceberg.BinaryType{}, nil
-	}
-
-	if matches := decimalRegex.FindStringSubmatch(s); matches != nil {
-		p, _ := strconv.Atoi(matches[1])
-		s, _ := strconv.Atoi(matches[2])
-		return iceberg.DecimalTypeOf(p, s), nil
-	}
-
-	if matches := fixedRegex.FindStringSubmatch(s); matches != nil {
-		l, _ := strconv.Atoi(matches[1])
-		return iceberg.FixedTypeOf(l), nil
-	}
-
-	return nil, errors.New("unsupported type: " + s)
-}
-
-func typeToString(t iceberg.Type) (string, error) {
-	return t.String(), nil
-}
-
-func icebergToTerraformFieldCommon(field iceberg.NestedField) (string, types.Object, types.Object, error) {
-	typeStr := field.Type.String()
-	listProps := types.ObjectNull(icebergTableSchemaFieldListProperties{}.AttrTypes())
-	mapProps := types.ObjectNull(icebergTableSchemaFieldMapProperties{}.AttrTypes())
-
-	switch t := field.Type.(type) {
-	case iceberg.DecimalType:
-		// Handled by t.String() -> "decimal(P, S)"
-	case iceberg.FixedType:
-		// Handled by t.String() -> "fixed(L)"
-	case *iceberg.ListType:
-		typeStr = "list"
-		elemTypeStr, err := typeToString(t.Element)
-		if err != nil {
-			return "", listProps, mapProps, err
-		}
-		listProps = types.ObjectValueMust(
-			icebergTableSchemaFieldListProperties{}.AttrTypes(),
-			map[string]attr.Value{
-				"element_id":       types.Int64Value(int64(t.ElementID)),
-				"element_type":     types.StringValue(elemTypeStr),
-				"element_required": types.BoolValue(t.ElementRequired),
-			},
-		)
-	case *iceberg.MapType:
-		typeStr = "map"
-		keyTypeStr, err := typeToString(t.KeyType)
-		if err != nil {
-			return "", listProps, mapProps, err
-		}
-		valueTypeStr, err := typeToString(t.ValueType)
-		if err != nil {
-			return "", listProps, mapProps, err
-		}
-		mapProps = types.ObjectValueMust(
-			icebergTableSchemaFieldMapProperties{}.AttrTypes(),
-			map[string]attr.Value{
-				"key_id":         types.Int64Value(int64(t.KeyID)),
-				"key_type":       types.StringValue(keyTypeStr),
-				"value_id":       types.Int64Value(int64(t.ValueID)),
-				"value_type":     types.StringValue(valueTypeStr),
-				"value_required": types.BoolValue(t.ValueRequired),
-			},
-		)
-	}
-	return typeStr, listProps, mapProps, nil
-}
-
-func icebergToTerraformField(field iceberg.NestedField) (attr.Value, error) {
-	typeStr, listProps, mapProps, err := icebergToTerraformFieldCommon(field)
-	if err != nil {
-		return nil, err
-	}
-
-	structProps := types.ObjectNull(icebergTableSchemaFieldStructProperties{}.AttrTypes())
-	if t, ok := field.Type.(*iceberg.StructType); ok {
-		typeStr = "struct"
-		nestedFields := make([]attr.Value, len(t.Fields()))
-		for i, nestedField := range t.Fields() {
-			f, err := icebergToTerraformInnerField(nestedField)
-			if err != nil {
-				return nil, err
-			}
-			nestedFields[i] = f
-		}
-		structProps = types.ObjectValueMust(
-			icebergTableSchemaFieldStructProperties{}.AttrTypes(),
-			map[string]attr.Value{
-				"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaInnerField{}.AttrTypes()}, nestedFields),
-			},
-		)
-	}
-
-	doc := types.StringValue(field.Doc)
-	if field.Doc == "" {
-		doc = types.StringNull()
-	}
-
-	return types.ObjectValueMust(
-		icebergTableSchemaField{}.AttrTypes(),
-		map[string]attr.Value{
-			"id":                types.Int64Value(int64(field.ID)),
-			"name":              types.StringValue(field.Name),
-			"type":              types.StringValue(typeStr),
-			"required":          types.BoolValue(field.Required),
-			"doc":               doc,
-			"list_properties":   listProps,
-			"map_properties":    mapProps,
-			"struct_properties": structProps,
-		},
-	), nil
-}
-
-func icebergToTerraformInnerField(field iceberg.NestedField) (attr.Value, error) {
-	typeStr, listProps, mapProps, err := icebergToTerraformFieldCommon(field)
-	if err != nil {
-		return nil, err
-	}
-
-	structProps := types.ObjectNull(icebergTableSchemaInnerStructProperties{}.AttrTypes())
-	if t, ok := field.Type.(*iceberg.StructType); ok {
-		typeStr = "struct"
-		nestedFields := make([]attr.Value, len(t.Fields()))
-		for i, nestedField := range t.Fields() {
-			f, err := icebergToTerraformLeafField(nestedField)
-			if err != nil {
-				return nil, err
-			}
-			nestedFields[i] = f
-		}
-		structProps = types.ObjectValueMust(
-			icebergTableSchemaInnerStructProperties{}.AttrTypes(),
-			map[string]attr.Value{
-				"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaLeafField{}.AttrTypes()}, nestedFields),
-			},
-		)
-	}
-
-	doc := types.StringValue(field.Doc)
-	if field.Doc == "" {
-		doc = types.StringNull()
-	}
-
-	return types.ObjectValueMust(
-		icebergTableSchemaInnerField{}.AttrTypes(),
-		map[string]attr.Value{
-			"id":                types.Int64Value(int64(field.ID)),
-			"name":              types.StringValue(field.Name),
-			"type":              types.StringValue(typeStr),
-			"required":          types.BoolValue(field.Required),
-			"doc":               doc,
-			"list_properties":   listProps,
-			"map_properties":    mapProps,
-			"struct_properties": structProps,
-		},
-	), nil
-}
-
-func icebergToTerraformLeafField(field iceberg.NestedField) (attr.Value, error) {
-	typeStr, listProps, mapProps, err := icebergToTerraformFieldCommon(field)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, ok := field.Type.(*iceberg.StructType); ok {
-		// recursion stop
-		return nil, errors.New("maximum nesting depth reached (3 levels) during read")
-	}
-
-	doc := types.StringValue(field.Doc)
-	if field.Doc == "" {
-		doc = types.StringNull()
-	}
-
-	return types.ObjectValueMust(
-		icebergTableSchemaLeafField{}.AttrTypes(),
-		map[string]attr.Value{
-			"id":              types.Int64Value(int64(field.ID)),
-			"name":            types.StringValue(field.Name),
-			"type":            types.StringValue(typeStr),
-			"required":        types.BoolValue(field.Required),
-			"doc":             doc,
-			"list_properties": listProps,
-			"map_properties":  mapProps,
-		},
-	), nil
-}

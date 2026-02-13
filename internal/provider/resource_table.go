@@ -20,9 +20,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -291,31 +289,11 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	fields := make([]iceberg.NestedField, len(schema.Fields))
-	for i, fieldObj := range schema.Fields {
-		var field icebergTableSchemaField
-		diags = fieldObj.As(ctx, &field, basetypes.ObjectAsOptions{})
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		typ, err := convertIcebergTableSchemaField(field)
-		if err != nil {
-			resp.Diagnostics.AddError("invalid field type", err.Error())
-			return
-		}
-
-		fields[i] = iceberg.NestedField{
-			ID:       int(field.ID.ValueInt64()),
-			Name:     field.Name.ValueString(),
-			Type:     typ,
-			Required: field.Required.ValueBool(),
-			Doc:      field.Doc.ValueString(),
-		}
+	tblSchema, err := schema.ToIceberg()
+	if err != nil {
+		resp.Diagnostics.AddError("failed to convert schema", err.Error())
+		return
 	}
-
-	tblSchema := iceberg.NewSchema(int(schema.ID.ValueInt64()), fields...)
 
 	userProps := make(map[string]string)
 	if !data.UserProperties.IsNull() && !data.UserProperties.IsUnknown() {
@@ -344,22 +322,16 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 
 	// Update schema from the created table to capture assigned IDs
 	icebergSchema := tbl.Schema()
-	currentFields := make([]attr.Value, len(icebergSchema.Fields()))
-	for i, field := range icebergSchema.Fields() {
-		fieldVal, err := icebergToTerraformField(field)
-		if err != nil {
-			resp.Diagnostics.AddError("failed to convert iceberg field to terraform field", err.Error())
-			return
-		}
-		currentFields[i] = fieldVal
+	var updatedSchema icebergTableSchema
+	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
+		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
+		return
 	}
-	data.Schema = types.ObjectValueMust(
-		icebergTableSchema{}.AttrTypes(),
-		map[string]attr.Value{
-			"id":     types.Int64Value(int64(icebergSchema.ID)),
-			"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaField{}.AttrTypes()}, currentFields),
-		},
-	)
+	data.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
@@ -409,22 +381,16 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 	data.ServerProperties = serverProperties
 
 	icebergSchema := tbl.Schema()
-	fields := make([]attr.Value, len(icebergSchema.Fields()))
-	for i, field := range icebergSchema.Fields() {
-		fieldVal, err := icebergToTerraformField(field)
-		if err != nil {
-			resp.Diagnostics.AddError("failed to convert iceberg field to terraform field", err.Error())
-			return
-		}
-		fields[i] = fieldVal
+	var updatedSchema icebergTableSchema
+	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
+		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
+		return
 	}
-	data.Schema = types.ObjectValueMust(
-		icebergTableSchema{}.AttrTypes(),
-		map[string]attr.Value{
-			"id":     types.Int64Value(int64(icebergSchema.ID)),
-			"fields": types.ListValueMust(types.ObjectType{AttrTypes: icebergTableSchemaField{}.AttrTypes()}, fields),
-		},
-	)
+	data.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
