@@ -59,85 +59,6 @@ func (r *icebergTableResource) Metadata(_ context.Context, req resource.Metadata
 }
 
 func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	// Reusable attribute definitions to reduce duplication
-	listPropsAttr := rscschema.SingleNestedAttribute{
-		Description: "Properties for list type.",
-		Optional:    true,
-		Attributes: map[string]rscschema.Attribute{
-			"element_id": rscschema.Int64Attribute{
-				Description: "The list element id.",
-				Required:    true,
-			},
-			"element_type": rscschema.StringAttribute{
-				Description: "The list element type.",
-				Required:    true,
-			},
-			"element_required": rscschema.BoolAttribute{
-				Description: "Whether the list element is required.",
-				Required:    true,
-			},
-		},
-	}
-
-	mapPropsAttr := rscschema.SingleNestedAttribute{
-		Description: "Properties for map type.",
-		Optional:    true,
-		Attributes: map[string]rscschema.Attribute{
-			"key_id": rscschema.Int64Attribute{
-				Description: "The map key id.",
-				Required:    true,
-			},
-			"key_type": rscschema.StringAttribute{
-				Description: "The map key type.",
-				Required:    true,
-			},
-			"value_id": rscschema.Int64Attribute{
-				Description: "The map value id.",
-				Required:    true,
-			},
-			"value_type": rscschema.StringAttribute{
-				Description: "The map value type.",
-				Required:    true,
-			},
-			"value_required": rscschema.BoolAttribute{
-				Description: "Whether the map value is required.",
-				Required:    true,
-			},
-		},
-	}
-
-	leafAttributes := map[string]rscschema.Attribute{
-		"id": rscschema.Int64Attribute{
-			Description: "The field ID.",
-			Optional:    true,
-			Computed:    true,
-		},
-		"name": rscschema.StringAttribute{
-			Description: "The field name.",
-			Required:    true,
-		},
-		"type": rscschema.StringAttribute{
-			Description: "The field type (e.g., 'int', 'string', 'decimal(10,2)', 'struct'). For struct, use struct_properties.",
-			Required:    true,
-		},
-		"required": rscschema.BoolAttribute{
-			Description: "Whether the field is required.",
-			Required:    true,
-		},
-		"doc": rscschema.StringAttribute{
-			Description: "The field documentation.",
-			Optional:    true,
-		},
-		"list_properties": listPropsAttr,
-		"map_properties":  mapPropsAttr,
-	}
-
-	innerAttributes := copyAttributes(leafAttributes)
-	innerAttributes["struct_properties"] = defineStructProperties(leafAttributes, "The fields of the struct.")
-
-	fieldAttributes := copyAttributes(leafAttributes)
-	fieldAttributes["struct_properties"] = defineStructProperties(innerAttributes, "The fields of the struct.")
-
 	resp.Schema = rscschema.Schema{
 		Description: "A resource for managing Iceberg tables.",
 		Attributes: map[string]rscschema.Attribute{
@@ -173,7 +94,7 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 						Description: "The fields of the schema",
 						Required:    true,
 						NestedObject: rscschema.NestedAttributeObject{
-							Attributes: fieldAttributes,
+							Attributes: schemaFieldAttributes(4),
 						},
 					},
 				},
@@ -192,28 +113,107 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 	}
 }
 
-func copyAttributes(attrs map[string]rscschema.Attribute) map[string]rscschema.Attribute {
-	newAttrs := make(map[string]rscschema.Attribute, len(attrs))
-	for k, v := range attrs {
-		newAttrs[k] = v
-	}
-	return newAttrs
-}
-
-func defineStructProperties(attributes map[string]rscschema.Attribute, description string) rscschema.SingleNestedAttribute {
-	return rscschema.SingleNestedAttribute{
-		Description: "Properties for struct type.",
-		Optional:    true,
-		Attributes: map[string]rscschema.Attribute{
-			"fields": rscschema.ListNestedAttribute{
-				Description: description,
-				Required:    true,
-				NestedObject: rscschema.NestedAttributeObject{
-					Attributes: attributes,
+func schemaFieldAttributes(depth int) map[string]rscschema.Attribute {
+	attrs := map[string]rscschema.Attribute{
+		"id": rscschema.Int64Attribute{
+			Description: "The field ID.",
+			Optional:    true,
+			Computed:    true,
+		},
+		"name": rscschema.StringAttribute{
+			Description: "The field name.",
+			Required:    true,
+		},
+		"type": rscschema.StringAttribute{
+			Description: "The field type (e.g., 'int', 'string', 'decimal(10,2)', 'struct'). For struct, use struct_properties.",
+			Required:    true,
+		},
+		"required": rscschema.BoolAttribute{
+			Description: "Whether the field is required.",
+			Required:    true,
+		},
+		"doc": rscschema.StringAttribute{
+			Description: "The field documentation.",
+			Optional:    true,
+		},
+		"list_properties": rscschema.SingleNestedAttribute{
+			Description: "Properties for list type.",
+			Optional:    true,
+			Attributes: map[string]rscschema.Attribute{
+				"element_id": rscschema.Int64Attribute{
+					Description: "The list element id.",
+					Required:    true,
+				},
+				"element_type": rscschema.StringAttribute{
+					Description: "The list element type.",
+					Required:    true,
+				},
+				"element_required": rscschema.BoolAttribute{
+					Description: "Whether the list element is required.",
+					Required:    true,
+				},
+			},
+		},
+		"map_properties": rscschema.SingleNestedAttribute{
+			Description: "Properties for map type.",
+			Optional:    true,
+			Attributes: map[string]rscschema.Attribute{
+				"key_id": rscschema.Int64Attribute{
+					Description: "The map key id.",
+					Required:    true,
+				},
+				"key_type": rscschema.StringAttribute{
+					Description: "The map key type.",
+					Required:    true,
+				},
+				"value_id": rscschema.Int64Attribute{
+					Description: "The map value id.",
+					Required:    true,
+				},
+				"value_type": rscschema.StringAttribute{
+					Description: "The map value type.",
+					Required:    true,
+				},
+				"value_required": rscschema.BoolAttribute{
+					Description: "Whether the map value is required.",
+					Required:    true,
 				},
 			},
 		},
 	}
+
+	if depth > 0 {
+		attrs["struct_properties"] = rscschema.SingleNestedAttribute{
+			Description: "Properties for struct type.",
+			Optional:    true,
+			Attributes: map[string]rscschema.Attribute{
+				"fields": rscschema.ListNestedAttribute{
+					Description: "The fields of the struct.",
+					Required:    true,
+					NestedObject: rscschema.NestedAttributeObject{
+						Attributes: schemaFieldAttributes(depth - 1),
+					},
+				},
+			},
+		}
+	} else {
+		// At max depth, we still need the attribute defined but it won't have fields
+		attrs["struct_properties"] = rscschema.SingleNestedAttribute{
+			Description: "Properties for struct type.",
+			Optional:    true,
+			Attributes: map[string]rscschema.Attribute{
+				"fields": rscschema.ListNestedAttribute{
+					Description: "The fields of the struct.",
+					Required:    true,
+					NestedObject: rscschema.NestedAttributeObject{
+						Attributes: map[string]rscschema.Attribute{},
+					},
+				},
+			},
+		}
+	}
+
+	return attrs
 }
 
 func (r *icebergTableResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {

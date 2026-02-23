@@ -33,7 +33,7 @@ func (s icebergTableSchema) AttrTypes() map[string]attr.Type {
 		"id": types.Int64Type,
 		"fields": types.ListType{
 			ElemType: types.ObjectType{
-				AttrTypes: icebergTableSchemaField{}.AttrTypes(),
+				AttrTypes: icebergTableSchemaField{}.AttrTypes(4),
 			},
 		},
 	}
@@ -61,10 +61,11 @@ func (s icebergTableSchema) MarshalJSON() ([]byte, error) {
 }
 
 func (s *icebergTableSchema) UnmarshalJSON(b []byte) error {
-	var raw struct {
+	type Alias struct {
 		ID     int64                     `json:"schema-id"`
 		Fields []icebergTableSchemaField `json:"fields"`
 	}
+	var raw Alias
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
 	}
@@ -104,17 +105,27 @@ type icebergTableSchemaField struct {
 	StructProperties *icebergTableSchemaFieldStructProperties `tfsdk:"struct_properties" json:"-"`
 }
 
-func (icebergTableSchemaField) AttrTypes() map[string]attr.Type {
-	return map[string]attr.Type{
-		"id":                types.Int64Type,
-		"name":              types.StringType,
-		"type":              types.StringType,
-		"required":          types.BoolType,
-		"doc":               types.StringType,
-		"list_properties":   types.ObjectType{AttrTypes: icebergTableSchemaFieldListProperties{}.AttrTypes()},
-		"map_properties":    types.ObjectType{AttrTypes: icebergTableSchemaFieldMapProperties{}.AttrTypes()},
-		"struct_properties": types.ObjectType{AttrTypes: icebergTableSchemaFieldStructProperties{}.AttrTypes()},
+func (icebergTableSchemaField) AttrTypes(depth int) map[string]attr.Type {
+	res := map[string]attr.Type{
+		"id":              types.Int64Type,
+		"name":            types.StringType,
+		"type":            types.StringType,
+		"required":        types.BoolType,
+		"doc":             types.StringType,
+		"list_properties": types.ObjectType{AttrTypes: icebergTableSchemaFieldListProperties{}.AttrTypes()},
+		"map_properties":  types.ObjectType{AttrTypes: icebergTableSchemaFieldMapProperties{}.AttrTypes()},
 	}
+
+	if depth > 0 {
+		res["struct_properties"] = types.ObjectType{AttrTypes: icebergTableSchemaFieldStructProperties{}.AttrTypes(depth - 1)}
+	} else {
+		// At max depth, we still need the attribute defined but it won't have fields
+		res["struct_properties"] = types.ObjectType{AttrTypes: map[string]attr.Type{
+			"fields": types.ListType{ElemType: types.ObjectType{AttrTypes: map[string]attr.Type{}}},
+		}}
+	}
+
+	return res
 }
 
 func (f icebergTableSchemaField) MarshalJSON() ([]byte, error) {
@@ -125,72 +136,9 @@ func (f *icebergTableSchemaField) UnmarshalJSON(b []byte) error {
 	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &f.StructProperties)
 }
 
-type icebergTableSchemaInnerField struct {
-	ID               types.Int64                              `tfsdk:"id" json:"id"`
-	Name             string                                   `tfsdk:"name" json:"name"`
-	Type             string                                   `tfsdk:"type" json:"-"`
-	Required         bool                                     `tfsdk:"required" json:"required"`
-	Doc              *string                                  `tfsdk:"doc" json:"doc,omitempty"`
-	ListProperties   *icebergTableSchemaFieldListProperties   `tfsdk:"list_properties" json:"-"`
-	MapProperties    *icebergTableSchemaFieldMapProperties    `tfsdk:"map_properties" json:"-"`
-	StructProperties *icebergTableSchemaInnerStructProperties `tfsdk:"struct_properties" json:"-"`
-}
-
-func (icebergTableSchemaInnerField) AttrTypes() map[string]attr.Type {
-	return map[string]attr.Type{
-		"id":                types.Int64Type,
-		"name":              types.StringType,
-		"type":              types.StringType,
-		"required":          types.BoolType,
-		"doc":               types.StringType,
-		"list_properties":   types.ObjectType{AttrTypes: icebergTableSchemaFieldListProperties{}.AttrTypes()},
-		"map_properties":    types.ObjectType{AttrTypes: icebergTableSchemaFieldMapProperties{}.AttrTypes()},
-		"struct_properties": types.ObjectType{AttrTypes: icebergTableSchemaInnerStructProperties{}.AttrTypes()},
-	}
-}
-
-func (f icebergTableSchemaInnerField) MarshalJSON() ([]byte, error) {
-	return marshalFieldJSON(f.ID, f.Name, f.Type, f.Required, f.Doc, f.ListProperties, f.MapProperties, f.StructProperties)
-}
-
-func (f *icebergTableSchemaInnerField) UnmarshalJSON(b []byte) error {
-	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &f.StructProperties)
-}
-
-type icebergTableSchemaLeafField struct {
-	ID             types.Int64                            `tfsdk:"id" json:"id"`
-	Name           string                                 `tfsdk:"name" json:"name"`
-	Type           string                                 `tfsdk:"type" json:"-"`
-	Required       bool                                   `tfsdk:"required" json:"required"`
-	Doc            *string                                `tfsdk:"doc" json:"doc,omitempty"`
-	ListProperties *icebergTableSchemaFieldListProperties `tfsdk:"list_properties" json:"-"`
-	MapProperties  *icebergTableSchemaFieldMapProperties  `tfsdk:"map_properties" json:"-"`
-}
-
-func (icebergTableSchemaLeafField) AttrTypes() map[string]attr.Type {
-	return map[string]attr.Type{
-		"id":              types.Int64Type,
-		"name":            types.StringType,
-		"type":            types.StringType,
-		"required":        types.BoolType,
-		"doc":             types.StringType,
-		"list_properties": types.ObjectType{AttrTypes: icebergTableSchemaFieldListProperties{}.AttrTypes()},
-		"map_properties":  types.ObjectType{AttrTypes: icebergTableSchemaFieldMapProperties{}.AttrTypes()},
-	}
-}
-
-func (f icebergTableSchemaLeafField) MarshalJSON() ([]byte, error) {
-	return marshalFieldJSON(f.ID, f.Name, f.Type, f.Required, f.Doc, f.ListProperties, f.MapProperties, nil)
-}
-
-func (f *icebergTableSchemaLeafField) UnmarshalJSON(b []byte) error {
-	var structProps *json.RawMessage // unused for leaf
-	return unmarshalFieldJSON(b, &f.ID, &f.Name, &f.Type, &f.Required, &f.Doc, &f.ListProperties, &f.MapProperties, &structProps)
-}
-
 type icebergTableSchemaFieldListProperties struct {
-	ElementID       types.Int64 `tfsdk:"element_id" json:"element-id"`
-	ElementType     string      `tfsdk:"element_type" json:"element"`
+	ID              types.Int64 `tfsdk:"element_id" json:"element-id"`
+	Type            string      `tfsdk:"element_type" json:"element"`
 	ElementRequired bool        `tfsdk:"element_required" json:"element-required"`
 }
 
@@ -204,8 +152,8 @@ func (icebergTableSchemaFieldListProperties) AttrTypes() map[string]attr.Type {
 
 func (p icebergTableSchemaFieldListProperties) MarshalJSON() ([]byte, error) {
 	var elementID int64
-	if !p.ElementID.IsNull() && !p.ElementID.IsUnknown() {
-		elementID = p.ElementID.ValueInt64()
+	if !p.ID.IsNull() && !p.ID.IsUnknown() {
+		elementID = p.ID.ValueInt64()
 	}
 	return json.Marshal(struct {
 		Type            string `json:"type"`
@@ -215,7 +163,7 @@ func (p icebergTableSchemaFieldListProperties) MarshalJSON() ([]byte, error) {
 	}{
 		Type:            "list",
 		ElementID:       elementID,
-		ElementType:     p.ElementType,
+		ElementType:     p.Type,
 		ElementRequired: p.ElementRequired,
 	})
 }
@@ -229,8 +177,8 @@ func (p *icebergTableSchemaFieldListProperties) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
 	}
-	p.ElementID = types.Int64Value(raw.ElementID)
-	p.ElementType = raw.ElementType
+	p.ID = types.Int64Value(raw.ElementID)
+	p.Type = raw.ElementType
 	p.ElementRequired = raw.ElementRequired
 	return nil
 }
@@ -298,14 +246,14 @@ func (p *icebergTableSchemaFieldMapProperties) UnmarshalJSON(b []byte) error {
 }
 
 type icebergTableSchemaFieldStructProperties struct {
-	Fields []icebergTableSchemaInnerField `tfsdk:"fields" json:"fields"`
+	Fields []icebergTableSchemaField `tfsdk:"fields" json:"fields"`
 }
 
-func (icebergTableSchemaFieldStructProperties) AttrTypes() map[string]attr.Type {
+func (icebergTableSchemaFieldStructProperties) AttrTypes(depth int) map[string]attr.Type {
 	return map[string]attr.Type{
 		"fields": types.ListType{
 			ElemType: types.ObjectType{
-				AttrTypes: icebergTableSchemaInnerField{}.AttrTypes(),
+				AttrTypes: icebergTableSchemaField{}.AttrTypes(depth),
 			},
 		},
 	}
@@ -313,8 +261,8 @@ func (icebergTableSchemaFieldStructProperties) AttrTypes() map[string]attr.Type 
 
 func (s icebergTableSchemaFieldStructProperties) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Type   string                         `json:"type"`
-		Fields []icebergTableSchemaInnerField `json:"fields"`
+		Type   string                    `json:"type"`
+		Fields []icebergTableSchemaField `json:"fields"`
 	}{
 		Type:   "struct",
 		Fields: s.Fields,
@@ -323,42 +271,7 @@ func (s icebergTableSchemaFieldStructProperties) MarshalJSON() ([]byte, error) {
 
 func (s *icebergTableSchemaFieldStructProperties) UnmarshalJSON(b []byte) error {
 	var raw struct {
-		Fields []icebergTableSchemaInnerField `json:"fields"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	s.Fields = raw.Fields
-	return nil
-}
-
-type icebergTableSchemaInnerStructProperties struct {
-	Fields []icebergTableSchemaLeafField `tfsdk:"fields" json:"fields"`
-}
-
-func (icebergTableSchemaInnerStructProperties) AttrTypes() map[string]attr.Type {
-	return map[string]attr.Type{
-		"fields": types.ListType{
-			ElemType: types.ObjectType{
-				AttrTypes: icebergTableSchemaLeafField{}.AttrTypes(),
-			},
-		},
-	}
-}
-
-func (s icebergTableSchemaInnerStructProperties) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type   string                        `json:"type"`
-		Fields []icebergTableSchemaLeafField `json:"fields"`
-	}{
-		Type:   "struct",
-		Fields: s.Fields,
-	})
-}
-
-func (s *icebergTableSchemaInnerStructProperties) UnmarshalJSON(b []byte) error {
-	var raw struct {
-		Fields []icebergTableSchemaLeafField `json:"fields"`
+		Fields []icebergTableSchemaField `json:"fields"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
@@ -445,4 +358,3 @@ func unmarshalFieldJSON(b []byte, id *types.Int64, name, typeStr *string, requir
 	}
 	return nil
 }
-
