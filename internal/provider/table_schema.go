@@ -17,6 +17,7 @@ package provider
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/apache/iceberg-go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -338,7 +339,8 @@ func unmarshalFieldJSON(b []byte, id *types.Int64, name, typeStr *string, requir
 		if err := json.Unmarshal(raw.Type, &s); err != nil {
 			return err
 		}
-		*typeStr = s
+		// Server + user may use different amounts of whitespace - decimal(10, 2)
+		*typeStr = strings.ReplaceAll(s, " ", "")
 	} else {
 		var typeObj struct {
 			Type string `json:"type"`
