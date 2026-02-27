@@ -13,25 +13,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+provider "iceberg" {
+  catalog_uri = "http://localhost:8181"
+}
 
-import (
-	"context"
-	"log"
+resource "iceberg_namespace" "example" {
+  name        = ["example_namespace"]
+  description = "An example namespace"
+}
 
-	"github.com/apache/iceberg-terraform/internal/provider"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-)
+resource "iceberg_table" "example" {
+  namespace = iceberg_namespace.example.name
+  name      = "example_table"
 
-const ADDRESS = "apache.org/iceberg/terraform-provider-iceberg"
-
-func main() {
-	err := providerserver.Serve(context.Background(), provider.New(), providerserver.ServeOpts{
-		// TODO: This needs to change on release with the published name.
-		Address: ADDRESS,
-	})
-
-	if err != nil {
-		log.Fatal(err)
-	}
+  schema = {
+    fields = [
+      {
+        name     = "id"
+        type     = "long"
+        required = true
+      },
+      {
+        name     = "data"
+        type     = "string"
+        required = false
+      },
+      {
+        name     = "tags"
+        type     = "list"
+        list_properties = {
+          element_id       = 3
+          element_type     = "string"
+          element_required = true
+        }
+        required = false
+      }
+    ]
+  }
 }
