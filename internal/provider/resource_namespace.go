@@ -41,10 +41,10 @@ func NewNamespaceResource() resource.Resource {
 }
 
 type icebergNamespaceResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.List   `tfsdk:"name"`
-	UserProperties types.Map    `tfsdk:"user_properties"`
-	ServerProperties types.Map `tfsdk:"server_properties"`
+	ID               types.String `tfsdk:"id"`
+	Name             types.List   `tfsdk:"name"`
+	UserProperties   types.Map    `tfsdk:"user_properties"`
+	ServerProperties types.Map    `tfsdk:"server_properties"`
 }
 
 type icebergNamespaceResource struct {
