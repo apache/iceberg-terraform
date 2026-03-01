@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -27,12 +28,20 @@ import (
 )
 
 func testAccPolarisProviderConfig(catalogURI, managementURI string) string {
+	return testAccPolarisProviderConfigWithToken(catalogURI, managementURI, "")
+}
+
+func testAccPolarisProviderConfigWithToken(catalogURI, managementURI, token string) string {
+	tokenAttr := ""
+	if token != "" {
+		tokenAttr = fmt.Sprintf("\n  token = %q", token)
+	}
 	return fmt.Sprintf(`
 provider "iceberg" {
-  catalog_uri           = "%s"
-  polaris_management_uri = "%s"
+  catalog_uri            = "%s"
+  polaris_management_uri = "%s"%s
 }
-`, catalogURI, managementURI)
+`, catalogURI, managementURI, tokenAttr)
 }
 
 func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
@@ -138,6 +147,42 @@ resource "iceberg_polaris_principal" "test" {
 					resource.TestCheckResourceAttr("iceberg_polaris_principal.test", "name", "alice"),
 					resource.TestCheckResourceAttr("iceberg_polaris_principal.test", "properties.team", "data"),
 					resource.TestCheckResourceAttr("iceberg_polaris_principal.test", "client_id", "id-alice"),
+				),
+			},
+		},
+	})
+}
+
+// TestAccPolarisPrincipal_Full runs against a real Polaris deployment
+func TestAccPolarisPrincipal_Full(t *testing.T) {
+	catalogURI := os.Getenv("POLARIS_CATALOG_URI")
+	if catalogURI == "" {
+		t.Skip("POLARIS_CATALOG_URI not set, skipping real-cluster principal test")
+	}
+	managementURI := strings.TrimRight(catalogURI, "/") + "/api/management/v1"
+	token := os.Getenv("POLARIS_TOKEN")
+
+	providerCfg := testAccPolarisProviderConfigWithToken(catalogURI, managementURI, token)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: providerCfg + `
+resource "iceberg_polaris_principal" "test" {
+  name = "principal-real"
+
+  properties = {
+    team = "data"
+  }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_polaris_principal.test", "name", "principal-real"),
+					resource.TestCheckResourceAttr("iceberg_polaris_principal.test", "properties.team", "data"),
+					resource.TestCheckResourceAttrSet("iceberg_polaris_principal.test", "client_id"),
+					resource.TestCheckResourceAttrSet("iceberg_polaris_principal.test", "client_secret"),
 				),
 			},
 		},
