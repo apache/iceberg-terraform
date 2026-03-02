@@ -310,22 +310,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 
 	data.ID = types.StringValue(strings.Join(tableIdent, "."))
 
-	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.ServerProperties = serverProperties
-
-	// Update schema from the created table to capture assigned IDs
-	icebergSchema := tbl.Schema()
-	var updatedSchema icebergTableSchema
-	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
-		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
-		return
-	}
-	data.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
-	resp.Diagnostics.Append(diags...)
+	r.syncTableToModel(ctx, tbl, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -370,21 +355,7 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.ServerProperties = serverProperties
-
-	icebergSchema := tbl.Schema()
-	var updatedSchema icebergTableSchema
-	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
-		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
-		return
-	}
-	data.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
-	resp.Diagnostics.Append(diags...)
+	r.syncTableToModel(ctx, tbl, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -433,24 +404,56 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 
 	updates := make([]table.Update, 0)
 
-	// Properties updates
+	updates = append(updates, r.calculatePropertyUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
+	updates = append(updates, r.calculateSchemaUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if len(updates) > 0 {
+		_, _, err = r.catalog.CommitTable(ctx, tableIdent, requirements, updates)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to commit table updates", err.Error())
+			return
+		}
+
+		// Reload the table to get the latest state
+		tbl, err = r.catalog.LoadTable(ctx, tableIdent)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to reload table after commit", err.Error())
+			return
+		}
+	}
+
+	r.syncTableToModel(ctx, tbl, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	diags = resp.State.Set(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+}
+
+func (r *icebergTableResource) calculatePropertyUpdates(ctx context.Context, plan, state *icebergTableResourceModel, diags *diag.Diagnostics) []table.Update {
+	updates := make([]table.Update, 0)
 	userUpdates := make(iceberg.Properties)
 	removals := make([]string, 0)
 
 	stateProps := make(map[string]string)
 	if !state.UserProperties.IsNull() {
-		diags = state.UserProperties.ElementsAs(ctx, &stateProps, false)
-		resp.Diagnostics.Append(diags...)
+		d := state.UserProperties.ElementsAs(ctx, &stateProps, false)
+		diags.Append(d...)
 	}
 
 	planProps := make(map[string]string)
 	if !plan.UserProperties.IsNull() {
-		diags = plan.UserProperties.ElementsAs(ctx, &planProps, false)
-		resp.Diagnostics.Append(diags...)
+		d := plan.UserProperties.ElementsAs(ctx, &planProps, false)
+		diags.Append(d...)
 	}
 
-	if resp.Diagnostics.HasError() {
-		return
+	if diags.HasError() {
+		return nil
 	}
 
 	for k, v := range planProps {
@@ -472,15 +475,18 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 		updates = append(updates, table.NewRemovePropertiesUpdate(removals))
 	}
 
-	// Schema updates
-	var planSchema, stateSchema icebergTableSchema
-	diags = plan.Schema.As(ctx, &planSchema, basetypes.ObjectAsOptions{})
-	resp.Diagnostics.Append(diags...)
-	diags = state.Schema.As(ctx, &stateSchema, basetypes.ObjectAsOptions{})
-	resp.Diagnostics.Append(diags...)
+	return updates
+}
 
-	if resp.Diagnostics.HasError() {
-		return
+func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan, state *icebergTableResourceModel, diags *diag.Diagnostics) []table.Update {
+	var planSchema, stateSchema icebergTableSchema
+	d := plan.Schema.As(ctx, &planSchema, basetypes.ObjectAsOptions{})
+	diags.Append(d...)
+	d = state.Schema.As(ctx, &stateSchema, basetypes.ObjectAsOptions{})
+	diags.Append(d...)
+
+	if diags.HasError() {
+		return nil
 	}
 
 	planJson, _ := planSchema.MarshalJSON()
@@ -489,63 +495,59 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 	if string(planJson) != string(stateJson) {
 		newIcebergSchema, err := planSchema.ToIceberg()
 		if err != nil {
-			resp.Diagnostics.AddError("failed to convert schema", err.Error())
-			return
+			diags.AddError("failed to convert schema", err.Error())
+			return nil
 		}
-		updates = append(updates, table.NewAddSchemaUpdate(newIcebergSchema))
-		updates = append(updates, table.NewSetCurrentSchemaUpdate(-1))
-	}
-
-	if len(updates) > 0 {
-		_, _, err = r.catalog.CommitTable(ctx, tableIdent, requirements, updates)
-		if err != nil {
-			resp.Diagnostics.AddError("failed to commit table updates", err.Error())
-			return
-		}
-
-		// Reload the table to get the latest state
-		tbl, err = r.catalog.LoadTable(ctx, tableIdent)
-		if err != nil {
-			resp.Diagnostics.AddError("failed to reload table after commit", err.Error())
-			return
+		return []table.Update{
+			table.NewAddSchemaUpdate(newIcebergSchema),
+			table.NewSetCurrentSchemaUpdate(-1),
 		}
 	}
 
+	return nil
+}
+
+func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.Table, model *icebergTableResourceModel, diags *diag.Diagnostics) {
 	// Update ServerProperties
-	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
+	serverProperties, d := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
+	diags.Append(d...)
+	if diags.HasError() {
 		return
 	}
-	plan.ServerProperties = serverProperties
+	model.ServerProperties = serverProperties
 
-	// Update Schema from the updated table to capture any server-assigned IDs
+	// Update Schema from the table to capture any server-assigned IDs
 	icebergSchema := tbl.Schema()
 	var updatedSchema icebergTableSchema
 	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
-		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
+		diags.AddError("failed to convert iceberg schema to terraform schema", err.Error())
 		return
 	}
-	plan.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
+	var d2 diag.Diagnostics
+	model.Schema, d2 = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
+	diags.Append(d2...)
+	if diags.HasError() {
 		return
 	}
 
 	// Update UserProperties to match reality for tracked keys
-	managedProps := make(map[string]string)
-	for k := range planProps {
-		if v, ok := tbl.Properties()[k]; ok {
-			managedProps[k] = v
+	if !model.UserProperties.IsNull() {
+		planProps := make(map[string]string)
+		d := model.UserProperties.ElementsAs(ctx, &planProps, false)
+		diags.Append(d...)
+		if diags.HasError() {
+			return
 		}
-	}
-	if !plan.UserProperties.IsNull() {
-		plan.UserProperties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
-		resp.Diagnostics.Append(diags...)
-	}
 
-	diags = resp.State.Set(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
+		managedProps := make(map[string]string)
+		for k := range planProps {
+			if v, ok := tbl.Properties()[k]; ok {
+				managedProps[k] = v
+			}
+		}
+		model.UserProperties, d = types.MapValueFrom(ctx, types.StringType, managedProps)
+		diags.Append(d...)
+	}
 }
 
 func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
