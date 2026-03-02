@@ -76,6 +76,139 @@ resource "iceberg_table" "test" {
 `, tableName)
 }
 
+func testAccIcebergTableUpdateConfig(providerCfg string, tableName string) string {
+	return providerCfg + fmt.Sprintf(`
+resource "iceberg_namespace" "db1" {
+  name = ["db1"]
+}
+
+resource "iceberg_table" "test" {
+  namespace = iceberg_namespace.db1.name
+  name      = "%s"
+  schema = {
+    fields = [
+      {
+        id       = 1
+        name     = "id"
+        type     = "long"
+        required = true
+      },
+      {
+        id       = 2
+        name     = "data"
+        type     = "string"
+        required = false
+      },
+      {
+        id       = 3
+        name     = "new_field"
+        type     = "int"
+        required = false
+      }
+    ]
+  }
+}
+`, tableName)
+}
+
+func TestAccIcebergTableUpdate(t *testing.T) {
+	catalogURI := os.Getenv("ICEBERG_CATALOG_URI")
+	if catalogURI == "" {
+		catalogURI = "http://localhost:8181"
+	}
+
+	providerCfg := fmt.Sprintf(providerConfig, catalogURI)
+	tableName := "update_test_table"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccIcebergTableResourceConfig(providerCfg, tableName),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "name", tableName),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.#", "2"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.id", "0"),
+				),
+			},
+			{
+				Config: testAccIcebergTableUpdateConfig(providerCfg, tableName),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "name", tableName),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.#", "3"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.2.name", "new_field"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.2.type", "int"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.id", "1"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccIcebergTablePropertiesUpdate(t *testing.T) {
+	catalogURI := os.Getenv("ICEBERG_CATALOG_URI")
+	if catalogURI == "" {
+		catalogURI = "http://localhost:8181"
+	}
+
+	providerCfg := fmt.Sprintf(providerConfig, catalogURI)
+	tableName := "prop_update_test_table"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccIcebergTablePropertiesConfig(providerCfg, tableName, `owner = "initial"`),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "user_properties.owner", "initial"),
+				),
+			},
+			{
+				Config: testAccIcebergTablePropertiesConfig(providerCfg, tableName, `owner = "updated", new_prop = "added"`),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "user_properties.owner", "updated"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "user_properties.new_prop", "added"),
+				),
+			},
+			{
+				Config: testAccIcebergTablePropertiesConfig(providerCfg, tableName, `owner = "updated"`),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "user_properties.owner", "updated"),
+					resource.TestCheckNoResourceAttr("iceberg_table.test", "user_properties.new_prop"),
+				),
+			},
+		},
+	})
+}
+
+func testAccIcebergTablePropertiesConfig(providerCfg string, tableName string, props string) string {
+	return providerCfg + fmt.Sprintf(`
+resource "iceberg_namespace" "db2" {
+  name = ["db2"]
+}
+
+resource "iceberg_table" "test" {
+  namespace = iceberg_namespace.db2.name
+  name      = "%s"
+  user_properties = {
+    %s
+  }
+  schema = {
+    fields = [
+      {
+        id       = 1
+        name     = "id"
+        type     = "long"
+        required = true
+      }
+    ]
+  }
+}
+`, tableName, props)
+}
+
 func TestAccIcebergTableFull(t *testing.T) {
 	catalogURI := os.Getenv("ICEBERG_CATALOG_URI")
 	if catalogURI == "" {

@@ -20,11 +20,12 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
+	"github.com/apache/iceberg-go/table"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -80,10 +81,6 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 			"schema": rscschema.SingleNestedAttribute{
 				Description: "The schema of the table.",
 				Required:    true,
-				// TODO: Update schema in place instead of replacement
-				PlanModifiers: []planmodifier.Object{
-					objectplanmodifier.RequiresReplace(),
-				},
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
@@ -397,10 +394,158 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Not Implemented",
-		"Update is not implemented for iceberg_table yet. Please use RequiresReplace if you need to change the table.",
-	)
+	r.ConfigureCatalog(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var plan, state icebergTableResourceModel
+
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+
+	diags = req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var namespaceName []string
+	diags = plan.Namespace.ElementsAs(ctx, &namespaceName, false)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tableName := plan.Name.ValueString()
+	tableIdent := append(namespaceName, tableName)
+
+	tbl, err := r.catalog.LoadTable(ctx, tableIdent)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to load table", err.Error())
+		return
+	}
+
+	requirements := []table.Requirement{
+		table.AssertTableUUID(tbl.Metadata().TableUUID()),
+	}
+
+	updates := make([]table.Update, 0)
+
+	// Properties updates
+	userUpdates := make(iceberg.Properties)
+	removals := make([]string, 0)
+
+	stateProps := make(map[string]string)
+	if !state.UserProperties.IsNull() {
+		diags = state.UserProperties.ElementsAs(ctx, &stateProps, false)
+		resp.Diagnostics.Append(diags...)
+	}
+
+	planProps := make(map[string]string)
+	if !plan.UserProperties.IsNull() {
+		diags = plan.UserProperties.ElementsAs(ctx, &planProps, false)
+		resp.Diagnostics.Append(diags...)
+	}
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	for k, v := range planProps {
+		if oldV, ok := stateProps[k]; !ok || oldV != v {
+			userUpdates[k] = v
+		}
+	}
+
+	for k := range stateProps {
+		if _, ok := planProps[k]; !ok {
+			removals = append(removals, k)
+		}
+	}
+
+	if len(userUpdates) > 0 {
+		updates = append(updates, table.NewSetPropertiesUpdate(userUpdates))
+	}
+	if len(removals) > 0 {
+		updates = append(updates, table.NewRemovePropertiesUpdate(removals))
+	}
+
+	// Schema updates
+	var planSchema, stateSchema icebergTableSchema
+	diags = plan.Schema.As(ctx, &planSchema, basetypes.ObjectAsOptions{})
+	resp.Diagnostics.Append(diags...)
+	diags = state.Schema.As(ctx, &stateSchema, basetypes.ObjectAsOptions{})
+	resp.Diagnostics.Append(diags...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	planJson, _ := planSchema.MarshalJSON()
+	stateJson, _ := stateSchema.MarshalJSON()
+
+	if string(planJson) != string(stateJson) {
+		newIcebergSchema, err := planSchema.ToIceberg()
+		if err != nil {
+			resp.Diagnostics.AddError("failed to convert schema", err.Error())
+			return
+		}
+		updates = append(updates, table.NewAddSchemaUpdate(newIcebergSchema))
+		updates = append(updates, table.NewSetCurrentSchemaUpdate(-1))
+	}
+
+	if len(updates) > 0 {
+		_, _, err = r.catalog.CommitTable(ctx, tableIdent, requirements, updates)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to commit table updates", err.Error())
+			return
+		}
+
+		// Reload the table to get the latest state
+		tbl, err = r.catalog.LoadTable(ctx, tableIdent)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to reload table after commit", err.Error())
+			return
+		}
+	}
+
+	// Update ServerProperties
+	serverProperties, diags := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	plan.ServerProperties = serverProperties
+
+	// Update Schema from the updated table to capture any server-assigned IDs
+	icebergSchema := tbl.Schema()
+	var updatedSchema icebergTableSchema
+	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
+		resp.Diagnostics.AddError("failed to convert iceberg schema to terraform schema", err.Error())
+		return
+	}
+	plan.Schema, diags = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Update UserProperties to match reality for tracked keys
+	managedProps := make(map[string]string)
+	for k := range planProps {
+		if v, ok := tbl.Properties()[k]; ok {
+			managedProps[k] = v
+		}
+	}
+	if !plan.UserProperties.IsNull() {
+		plan.UserProperties, diags = types.MapValueFrom(ctx, types.StringType, managedProps)
+		resp.Diagnostics.Append(diags...)
+	}
+
+	diags = resp.State.Set(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
 }
 
 func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
