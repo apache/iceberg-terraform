@@ -41,15 +41,20 @@ func New() func() provider.Provider {
 	}
 }
 
+// polarisConfig holds Polaris-specific provider settings. Used only when type is "polaris".
+type polarisConfig struct {
+	managementURI string
+	catalogName   string
+}
+
 // icebergProvider is the provider implementation.
 type icebergProvider struct {
-	catalogURI           string
-	catalogType          string
-	token                string
-	warehouse            string
-	headers              map[string]string
-	polarisManagementURI string
-	polarisCatalogName   string
+	catalogURI  string
+	catalogType string // passed to iceberg-go as "rest" when type is "polaris"
+	token       string
+	warehouse   string
+	headers     map[string]string
+	polaris     *polarisConfig // non-nil when type is "polaris"
 }
 
 // icebergProviderModel maps provider schema data to a Go type.
@@ -78,12 +83,13 @@ func (p *icebergProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Required:    true,
 			},
 			"type": schema.StringAttribute{
-				Description: "The type of catalog to use. Currently only 'rest' is supported.",
+				Description: "The type of catalog. Use 'rest' for a plain REST catalog, or 'polaris' for Polaris (REST catalog with Polaris management). When 'polaris', polaris_management_uri and polaris_catalog_name may be set.",
 				Optional:    true,
 			},
-			"token": schema.StringAttribute{Description: "The token to use for authentication.",
-				Optional:  true,
-				Sensitive: true,
+			"token": schema.StringAttribute{
+				Description: "The token to use for authentication.",
+				Optional:    true,
+				Sensitive:   true,
 			},
 			"warehouse": schema.StringAttribute{
 				Description: "The warehouse to use for the Iceberg REST catalog. This will be passed as `warehouse` property in the catalog properties.",
@@ -124,16 +130,33 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	p.catalogURI = data.CatalogURI.ValueString()
 
+	catalogType := "rest"
 	if !data.Type.IsNull() && !data.Type.IsUnknown() {
-		p.catalogType = data.Type.ValueString()
-	} else {
-		p.catalogType = "rest"
+		catalogType = data.Type.ValueString()
 	}
 
-	if p.catalogType != "rest" {
+	switch catalogType {
+	case "rest":
+		p.catalogType = "rest"
+		p.polaris = nil
+	case "polaris":
+		p.catalogType = "rest"
+		p.polaris = &polarisConfig{}
+		if !data.PolarisCatalogName.IsNull() && !data.PolarisCatalogName.IsUnknown() {
+			p.polaris.catalogName = data.PolarisCatalogName.ValueString()
+		}
+		if !data.PolarisManagementURI.IsNull() && !data.PolarisManagementURI.IsUnknown() {
+			p.polaris.managementURI = strings.TrimRight(data.PolarisManagementURI.ValueString(), "/")
+		} else if p.catalogURI != "" {
+			if u, err := url.Parse(p.catalogURI); err == nil {
+				u.Path = "/api/management/v1"
+				p.polaris.managementURI = strings.TrimRight(u.String(), "/")
+			}
+		}
+	default:
 		resp.Diagnostics.AddError(
 			"Unsupported Catalog Type",
-			"The provider currently only supports the 'rest' catalog type. Got: "+p.catalogType,
+			"The provider supports 'rest' and 'polaris'. Got: "+catalogType,
 		)
 		return
 	}
@@ -154,23 +177,6 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 		}
 
 		p.headers = headers
-	}
-
-	if !data.PolarisCatalogName.IsNull() && !data.PolarisCatalogName.IsUnknown() {
-		p.polarisCatalogName = data.PolarisCatalogName.ValueString()
-	}
-
-	if !data.PolarisManagementURI.IsNull() && !data.PolarisManagementURI.IsUnknown() {
-		p.polarisManagementURI = strings.TrimRight(data.PolarisManagementURI.ValueString(), "/")
-	} else {
-		if p.catalogURI != "" {
-			if u, err := url.Parse(p.catalogURI); err == nil {
-				u.Path = "/api/management/v1"
-				u.RawQuery = ""
-				u.Fragment = ""
-				p.polarisManagementURI = strings.TrimRight(u.String(), "/")
-			}
-		}
 	}
 
 	resp.DataSourceData = p

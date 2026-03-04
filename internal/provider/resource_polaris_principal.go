@@ -51,7 +51,6 @@ type polarisPrincipalResourceModel struct {
 	CredentialRotationRequired types.Bool   `tfsdk:"credential_rotation_required"`
 	ClientID                   types.String `tfsdk:"client_id"`
 	ClientSecret               types.String `tfsdk:"client_secret"`
-	EntityVersion              types.Int64  `tfsdk:"entity_version"`
 }
 
 func (r *polarisPrincipalResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -95,10 +94,6 @@ func (r *polarisPrincipalResource) Schema(_ context.Context, _ resource.SchemaRe
 				Description: "The client secret associated with this principal.",
 				Computed:    true,
 				Sensitive:   true,
-			},
-			"entity_version": schema.Int64Attribute{
-				Description: "The entity version used for optimistic concurrency control when updating the principal.",
-				Computed:    true,
 			},
 		},
 	}
@@ -199,7 +194,6 @@ func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.Crea
 
 	data.ClientID = types.StringValue(created.Credentials.ClientID)
 	data.ClientSecret = types.StringValue(created.Credentials.ClientSecret)
-	data.EntityVersion = types.Int64Value(created.Principal.EntityVersion)
 
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
@@ -232,7 +226,7 @@ func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	// Update properties and entity version; keep credentials as they are not returned on GET.
+	// Update properties; credentials are not returned on GET so keep from state.
 	if len(principal.Properties) > 0 {
 		propsVal, diags := types.MapValueFrom(ctx, types.StringType, principal.Properties)
 		resp.Diagnostics.Append(diags...)
@@ -243,8 +237,6 @@ func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRe
 	} else {
 		data.Properties = types.MapNull(types.StringType)
 	}
-
-	data.EntityVersion = types.Int64Value(principal.EntityVersion)
 
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
@@ -270,6 +262,18 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 
 	name := state.Name.ValueString()
 
+	// Fetch current entity version from API so we don't require users to track it; Terraform manages it internally.
+	current, err := r.client.GetPrincipal(ctx, name)
+	if err != nil {
+		var nf *polarisNotFoundError
+		if errors.As(err, &nf) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError("Failed to read Polaris principal for update", err.Error())
+		return
+	}
+
 	props := make(map[string]string)
 	if !plan.Properties.IsNull() && !plan.Properties.IsUnknown() {
 		diags = plan.Properties.ElementsAs(ctx, &props, false)
@@ -280,7 +284,7 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	updateReq := polarisUpdatePrincipalRequest{
-		CurrentEntityVersion: state.EntityVersion.ValueInt64(),
+		CurrentEntityVersion: current.EntityVersion,
 		Properties:           props,
 	}
 
@@ -288,7 +292,6 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 
 	updated, err := r.client.UpdatePrincipal(ctx, name, updateReq)
 	if err != nil {
-		// Surface concurrency / version conflicts clearly.
 		var nf *polarisNotFoundError
 		if errors.As(err, &nf) {
 			resp.State.RemoveResource(ctx)
@@ -297,8 +300,6 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 		resp.Diagnostics.AddError("Failed to update Polaris principal", err.Error())
 		return
 	}
-
-	plan.EntityVersion = types.Int64Value(updated.EntityVersion)
 
 	if len(updated.Properties) > 0 {
 		propsVal, diags := types.MapValueFrom(ctx, types.StringType, updated.Properties)
@@ -311,7 +312,7 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 		plan.Properties = types.MapNull(types.StringType)
 	}
 
-	// Preserve credentials and name/id from previous state.
+	// Preserve credentials and name/id from previous state (credentials not returned on update).
 	plan.ID = state.ID
 	plan.Name = state.Name
 	plan.ClientID = state.ClientID
