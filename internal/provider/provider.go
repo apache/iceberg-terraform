@@ -41,7 +41,13 @@ func New() func() provider.Provider {
 	}
 }
 
-// polarisConfig holds Polaris-specific provider settings. Used only when type is "polaris".
+// polarisSettingsModel is the Terraform-facing shape of the nested polaris_settings block.
+type polarisSettingsModel struct {
+	ManagementURI types.String `tfsdk:"management_uri"`
+	CatalogName   types.String `tfsdk:"catalog_name"`
+}
+
+// polarisConfig holds Polaris-specific runtime configuration derived from polaris_settings.
 type polarisConfig struct {
 	managementURI string
 	catalogName   string
@@ -50,22 +56,21 @@ type polarisConfig struct {
 // icebergProvider is the provider implementation.
 type icebergProvider struct {
 	catalogURI  string
-	catalogType string // passed to iceberg-go as "rest" when type is "polaris"
+	catalogType string
 	token       string
 	warehouse   string
 	headers     map[string]string
-	polaris     *polarisConfig // non-nil when type is "polaris"
+	polaris     *polarisConfig
 }
 
 // icebergProviderModel maps provider schema data to a Go type.
 type icebergProviderModel struct {
-	CatalogURI           types.String `tfsdk:"catalog_uri"`
-	Type                 types.String `tfsdk:"type"`
-	Token                types.String `tfsdk:"token"`
-	Warehouse            types.String `tfsdk:"warehouse"`
-	Headers              types.Map    `tfsdk:"headers"`
-	PolarisManagementURI types.String `tfsdk:"polaris_management_uri"`
-	PolarisCatalogName   types.String `tfsdk:"polaris_catalog_name"`
+	CatalogURI      types.String          `tfsdk:"catalog_uri"`
+	Type            types.String          `tfsdk:"type"`
+	Token           types.String          `tfsdk:"token"`
+	Warehouse       types.String          `tfsdk:"warehouse"`
+	Headers         types.Map             `tfsdk:"headers"`
+	PolarisSettings *polarisSettingsModel `tfsdk:"polaris_settings"`
 }
 
 // Metadata returns the provider type name.
@@ -83,13 +88,12 @@ func (p *icebergProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Required:    true,
 			},
 			"type": schema.StringAttribute{
-				Description: "The type of catalog. Use 'rest' for a plain REST catalog, or 'polaris' for Polaris (REST catalog with Polaris management). When 'polaris', polaris_management_uri and polaris_catalog_name may be set.",
+				Description: "The type of catalog. Use 'rest' for a plain REST catalog, or 'polaris' for Polaris (REST catalog with Polaris management).",
 				Optional:    true,
 			},
-			"token": schema.StringAttribute{
-				Description: "The token to use for authentication.",
-				Optional:    true,
-				Sensitive:   true,
+			"token": schema.StringAttribute{Description: "The token to use for authentication.",
+				Optional:  true,
+				Sensitive: true,
 			},
 			"warehouse": schema.StringAttribute{
 				Description: "The warehouse to use for the Iceberg REST catalog. This will be passed as `warehouse` property in the catalog properties.",
@@ -101,13 +105,20 @@ func (p *icebergProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Sensitive:   true,
 				ElementType: types.StringType,
 			},
-			"polaris_management_uri": schema.StringAttribute{
-				Description: "The base URI for the Polaris Management API. If omitted, it will be derived from catalog_uri by replacing the path with '/api/management/v1'",
-				Optional:    true,
-			},
-			"polaris_catalog_name": schema.StringAttribute{
-				Description: "Optional Polaris catalog name to use as the default when managing Polaris RBAC resources",
-				Optional:    true,
+		},
+		Blocks: map[string]schema.Block{
+			"polaris_settings": schema.SingleNestedBlock{
+				Description: "Settings specific to Polaris when type = 'polaris'.",
+				Attributes: map[string]schema.Attribute{
+					"management_uri": schema.StringAttribute{
+						Description: "The base URI for the Polaris Management API. If omitted, it will be derived from catalog_uri by appending '/api/management/v1'.",
+						Optional:    true,
+					},
+					"catalog_name": schema.StringAttribute{
+						Description: "Default Polaris catalog name for RBAC resources.",
+						Optional:    true,
+					},
+				},
 			},
 		},
 	}
@@ -130,6 +141,7 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	p.catalogURI = data.CatalogURI.ValueString()
 
+	// Determine catalog type: support "rest" and "polaris".
 	catalogType := "rest"
 	if !data.Type.IsNull() && !data.Type.IsUnknown() {
 		catalogType = data.Type.ValueString()
@@ -140,19 +152,28 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 		p.catalogType = "rest"
 		p.polaris = nil
 	case "polaris":
+		// Under the hood this is still a REST catalog; Polaris is an overlay for management APIs.
 		p.catalogType = "rest"
-		p.polaris = &polarisConfig{}
-		if !data.PolarisCatalogName.IsNull() && !data.PolarisCatalogName.IsUnknown() {
-			p.polaris.catalogName = data.PolarisCatalogName.ValueString()
-		}
-		if !data.PolarisManagementURI.IsNull() && !data.PolarisManagementURI.IsUnknown() {
-			p.polaris.managementURI = strings.TrimRight(data.PolarisManagementURI.ValueString(), "/")
-		} else if p.catalogURI != "" {
-			if u, err := url.Parse(p.catalogURI); err == nil {
-				u.Path = "/api/management/v1"
-				p.polaris.managementURI = strings.TrimRight(u.String(), "/")
+
+		cfg := &polarisConfig{}
+		if data.PolarisSettings != nil {
+			if !data.PolarisSettings.CatalogName.IsNull() && !data.PolarisSettings.CatalogName.IsUnknown() {
+				cfg.catalogName = data.PolarisSettings.CatalogName.ValueString()
+			}
+			if !data.PolarisSettings.ManagementURI.IsNull() && !data.PolarisSettings.ManagementURI.IsUnknown() {
+				cfg.managementURI = strings.TrimRight(data.PolarisSettings.ManagementURI.ValueString(), "/")
 			}
 		}
+
+		// Derive management URI from catalog_uri if not explicitly set.
+		if cfg.managementURI == "" && p.catalogURI != "" {
+			if u, err := url.Parse(p.catalogURI); err == nil {
+				u.Path = "/api/management/v1"
+				cfg.managementURI = strings.TrimRight(u.String(), "/")
+			}
+		}
+
+		p.polaris = cfg
 	default:
 		resp.Diagnostics.AddError(
 			"Unsupported Catalog Type",

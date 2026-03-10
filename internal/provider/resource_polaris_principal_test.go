@@ -38,9 +38,12 @@ func testAccPolarisProviderConfigWithToken(catalogURI, managementURI, token stri
 	}
 	return fmt.Sprintf(`
 provider "iceberg" {
-  type                   = "polaris"
-  catalog_uri            = "%s"
-  polaris_management_uri = "%s"%s
+  type        = "polaris"
+  catalog_uri = "%s"
+
+  polaris_settings {
+    management_uri = "%s"
+  }%s
 }
 `, catalogURI, managementURI, tokenAttr)
 }
