@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/apache/iceberg-go"
+	"github.com/apache/iceberg-go/table"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -93,6 +94,105 @@ func (s *icebergTableSchema) FromIceberg(icebergSchema *iceberg.Schema) error {
 		return err
 	}
 	return json.Unmarshal(b, s)
+}
+
+type icebergTablePartitionSpec struct {
+	Fields []icebergTablePartitionField `tfsdk:"fields" json:"fields"`
+}
+
+func (s icebergTablePartitionSpec) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"fields": types.ListType{
+			ElemType: types.ObjectType{
+				AttrTypes: icebergTablePartitionField{}.AttrTypes(),
+			},
+		},
+	}
+}
+
+func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	var icebergSpec iceberg.PartitionSpec
+	if err := json.Unmarshal(b, &icebergSpec); err != nil {
+		return nil, err
+	}
+	return &icebergSpec, nil
+}
+
+func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpec) error {
+	b, err := json.Marshal(icebergSpec)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, s)
+}
+
+type icebergTablePartitionField struct {
+	SourceID  int64  `tfsdk:"source_id" json:"source-id"`
+	FieldID   int64  `tfsdk:"-" json:"field-id"`
+	Name      string `tfsdk:"name" json:"name"`
+	Transform string `tfsdk:"transform" json:"transform"`
+}
+
+func (icebergTablePartitionField) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"source_id": types.Int64Type,
+		"name":      types.StringType,
+		"transform": types.StringType,
+	}
+}
+
+type icebergTableSortOrder struct {
+	Fields []icebergTableSortField `tfsdk:"fields" json:"fields"`
+}
+
+func (s icebergTableSortOrder) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"fields": types.ListType{
+			ElemType: types.ObjectType{
+				AttrTypes: icebergTableSortField{}.AttrTypes(),
+			},
+		},
+	}
+}
+
+func (s *icebergTableSortOrder) ToIceberg() (table.SortOrder, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return table.SortOrder{}, err
+	}
+	var icebergOrder table.SortOrder
+	if err := json.Unmarshal(b, &icebergOrder); err != nil {
+		return table.SortOrder{}, err
+	}
+	return icebergOrder, nil
+}
+
+func (s *icebergTableSortOrder) FromIceberg(icebergOrder table.SortOrder) error {
+	b, err := json.Marshal(icebergOrder)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, s)
+}
+
+type icebergTableSortField struct {
+	SourceID  int64  `tfsdk:"source_id" json:"source-id"`
+	Transform string `tfsdk:"transform" json:"transform"`
+	Direction string `tfsdk:"direction" json:"direction"`
+	NullOrder string `tfsdk:"null_order" json:"null-order"`
+}
+
+func (icebergTableSortField) AttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"source_id":  types.Int64Type,
+		"transform":  types.StringType,
+		"direction":  types.StringType,
+		"null_order": types.StringType,
+	}
 }
 
 type icebergTableSchemaField struct {

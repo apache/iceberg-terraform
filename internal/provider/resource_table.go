@@ -46,6 +46,8 @@ type icebergTableResourceModel struct {
 	Namespace        types.List   `tfsdk:"namespace"`
 	Name             types.String `tfsdk:"name"`
 	Schema           types.Object `tfsdk:"schema"`
+	PartitionSpec    types.Object `tfsdk:"partition_spec"`
+	SortOrder        types.Object `tfsdk:"sort_order"`
 	UserProperties   types.Map    `tfsdk:"user_properties"`
 	ServerProperties types.Map    `tfsdk:"server_properties"`
 }
@@ -92,6 +94,64 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 						Required:    true,
 						NestedObject: rscschema.NestedAttributeObject{
 							Attributes: schemaFieldAttributes(4),
+						},
+					},
+				},
+			},
+			"partition_spec": rscschema.SingleNestedAttribute{
+				Description: "The partition spec of the table.",
+				Optional:    true,
+				Computed:    true,
+				Attributes: map[string]rscschema.Attribute{
+					"fields": rscschema.ListNestedAttribute{
+						Description: "The fields of the partition spec.",
+						Required:    true,
+						NestedObject: rscschema.NestedAttributeObject{
+							Attributes: map[string]rscschema.Attribute{
+								"source_id": rscschema.Int64Attribute{
+									Description: "The source field ID.",
+									Required:    true,
+								},
+								"name": rscschema.StringAttribute{
+									Description: "The partition field name.",
+									Required:    true,
+								},
+								"transform": rscschema.StringAttribute{
+									Description: "The partition transform.",
+									Required:    true,
+								},
+							},
+						},
+					},
+				},
+			},
+			"sort_order": rscschema.SingleNestedAttribute{
+				Description: "The sort order of the table.",
+				Optional:    true,
+				Computed:    true,
+				Attributes: map[string]rscschema.Attribute{
+					"fields": rscschema.ListNestedAttribute{
+						Description: "The fields of the sort order.",
+						Required:    true,
+						NestedObject: rscschema.NestedAttributeObject{
+							Attributes: map[string]rscschema.Attribute{
+								"source_id": rscschema.Int64Attribute{
+									Description: "The source field ID.",
+									Required:    true,
+								},
+								"transform": rscschema.StringAttribute{
+									Description: "The sort transform.",
+									Required:    true,
+								},
+								"direction": rscschema.StringAttribute{
+									Description: "The sort direction (asc or desc).",
+									Required:    true,
+								},
+								"null_order": rscschema.StringAttribute{
+									Description: "The null order (nulls-first or nulls-last).",
+									Required:    true,
+								},
+							},
 						},
 					},
 				},
@@ -301,8 +361,41 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 		}
 	}
 
-	// TODO: Add PartitionSpec support
-	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema, catalog.WithProperties(userProps))
+	createOpts := []catalog.CreateTableOpt{
+		catalog.WithProperties(userProps),
+	}
+
+	if !data.PartitionSpec.IsNull() && !data.PartitionSpec.IsUnknown() {
+		var spec icebergTablePartitionSpec
+		diags = data.PartitionSpec.As(ctx, &spec, basetypes.ObjectAsOptions{})
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		icebergSpec, err := spec.ToIceberg()
+		if err != nil {
+			resp.Diagnostics.AddError("failed to convert partition spec", err.Error())
+			return
+		}
+		createOpts = append(createOpts, catalog.WithPartitionSpec(icebergSpec))
+	}
+
+	if !data.SortOrder.IsNull() && !data.SortOrder.IsUnknown() {
+		var order icebergTableSortOrder
+		diags = data.SortOrder.As(ctx, &order, basetypes.ObjectAsOptions{})
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		icebergOrder, err := order.ToIceberg()
+		if err != nil {
+			resp.Diagnostics.AddError("failed to convert sort order", err.Error())
+			return
+		}
+		createOpts = append(createOpts, catalog.WithSortOrder(icebergOrder))
+	}
+
+	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema, createOpts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create table", err.Error())
 		return
@@ -406,6 +499,8 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 
 	updates = append(updates, r.calculatePropertyUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
 	updates = append(updates, r.calculateSchemaUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
+	updates = append(updates, r.calculatePartitionUpdates(ctx, &plan, tbl, &resp.Diagnostics)...)
+	updates = append(updates, r.calculateSortOrderUpdates(ctx, &plan, tbl, &resp.Diagnostics)...)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -507,6 +602,95 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 	return nil
 }
 
+func (r *icebergTableResource) calculatePartitionUpdates(ctx context.Context, plan *icebergTableResourceModel, tbl *table.Table, diags *diag.Diagnostics) []table.Update {
+	spec := tbl.Spec()
+	if plan.PartitionSpec.IsUnknown() {
+		if spec.NumFields() > 0 {
+			// Create a new unpartitioned spec and set it as default
+			unpartitionedSpec := iceberg.NewPartitionSpec()
+			return []table.Update{
+				table.NewAddPartitionSpecUpdate(&unpartitionedSpec, false),
+				table.NewSetDefaultSpecUpdate(-1),
+			}
+		}
+		return nil
+	}
+
+	if plan.PartitionSpec.IsNull() {
+		return nil
+	}
+
+	var planSpec icebergTablePartitionSpec
+	d := plan.PartitionSpec.As(ctx, &planSpec, basetypes.ObjectAsOptions{})
+	diags.Append(d...)
+
+	if diags.HasError() {
+		return nil
+	}
+
+	newIcebergSpec, err := planSpec.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert partition spec", err.Error())
+		return nil
+	}
+
+	// Compare with current spec
+	if !spec.CompatibleWith(newIcebergSpec) {
+		return []table.Update{
+			table.NewAddPartitionSpecUpdate(newIcebergSpec, false),
+			table.NewSetDefaultSpecUpdate(-1),
+		}
+	}
+
+	return nil
+}
+
+func (r *icebergTableResource) calculateSortOrderUpdates(ctx context.Context, plan *icebergTableResourceModel, tbl *table.Table, diags *diag.Diagnostics) []table.Update {
+	if plan.SortOrder.IsUnknown() {
+		if tbl.SortOrder().OrderID() != 0 {
+			// Create a new unsorted order and set it as default
+			unsortedOrder, err := table.NewSortOrder(0, []table.SortField{})
+			if err != nil {
+				diags.AddError("failed to create unsorted order", err.Error())
+				return nil
+			}
+			return []table.Update{
+				table.NewAddSortOrderUpdate(&unsortedOrder),
+				table.NewSetDefaultSortOrderUpdate(0),
+			}
+		}
+		return nil
+	}
+
+	if plan.SortOrder.IsNull() {
+		return nil
+	}
+
+	var planOrder icebergTableSortOrder
+	d := plan.SortOrder.As(ctx, &planOrder, basetypes.ObjectAsOptions{})
+	diags.Append(d...)
+
+	if diags.HasError() {
+		return nil
+	}
+
+	newIcebergOrder, err := planOrder.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert sort order", err.Error())
+		return nil
+	}
+
+	// Compare with current sort order
+	if !tbl.SortOrder().Equals(newIcebergOrder) {
+		return []table.Update{
+			table.NewAddSortOrderUpdate(&newIcebergOrder),
+			table.NewSetDefaultSortOrderUpdate(-1),
+		}
+	}
+
+	return nil
+}
+
 func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.Table, model *icebergTableResourceModel, diags *diag.Diagnostics) {
 	// Update ServerProperties
 	serverProperties, d := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
@@ -528,6 +712,36 @@ func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.
 	diags.Append(d2...)
 	if diags.HasError() {
 		return
+	}
+
+	// Update PartitionSpec
+	icebergSpec := tbl.Spec()
+	if icebergSpec.NumFields() > 0 {
+		var updatedSpec icebergTablePartitionSpec
+		if err := updatedSpec.FromIceberg(icebergSpec); err != nil {
+			diags.AddError("failed to convert iceberg partition spec to terraform partition spec", err.Error())
+			return
+		}
+		var d3 diag.Diagnostics
+		model.PartitionSpec, d3 = types.ObjectValueFrom(ctx, icebergTablePartitionSpec{}.AttrTypes(), updatedSpec)
+		diags.Append(d3...)
+	} else {
+		model.PartitionSpec = types.ObjectNull(icebergTablePartitionSpec{}.AttrTypes())
+	}
+
+	// Update SortOrder
+	icebergOrder := tbl.SortOrder()
+	if icebergOrder.Len() > 0 {
+		var updatedOrder icebergTableSortOrder
+		if err := updatedOrder.FromIceberg(icebergOrder); err != nil {
+			diags.AddError("failed to convert iceberg sort order to terraform sort order", err.Error())
+			return
+		}
+		var d4 diag.Diagnostics
+		model.SortOrder, d4 = types.ObjectValueFrom(ctx, icebergTableSortOrder{}.AttrTypes(), updatedOrder)
+		diags.Append(d4...)
+	} else {
+		model.SortOrder = types.ObjectNull(icebergTableSortOrder{}.AttrTypes())
 	}
 
 	// Update UserProperties to match reality for tracked keys
