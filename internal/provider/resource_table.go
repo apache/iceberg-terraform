@@ -419,9 +419,9 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 		}
 
 		// Reload the table to get the latest state
-		tbl, err = r.catalog.LoadTable(ctx, tableIdent)
+		err = tbl.Refresh(ctx)
 		if err != nil {
-			resp.Diagnostics.AddError("failed to reload table after commit", err.Error())
+			resp.Diagnostics.AddError("failed to refresh table after commit", err.Error())
 			return
 		}
 	}
