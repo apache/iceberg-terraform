@@ -86,12 +86,12 @@ func (r *polarisPrincipalResource) Schema(_ context.Context, _ resource.SchemaRe
 				Default:     booldefault.StaticBool(false),
 			},
 			"client_id": schema.StringAttribute{
-				Description: "The client ID associated with this principal.",
+				Description: "The client ID associated with this principal. Computed after create.",
 				Computed:    true,
 				Sensitive:   true,
 			},
 			"client_secret": schema.StringAttribute{
-				Description: "The client secret associated with this principal.",
+				Description: "The client secret associated with this principal. Polaris only allows setting/resetting via resetCredentials after create; this provider stores the secret after create and preserves it on update.",
 				Computed:    true,
 				Sensitive:   true,
 			},
@@ -122,15 +122,18 @@ func (r *polarisPrincipalResource) ensureClient(ctx context.Context, diags *diag
 		diags.AddError(
 			"Provider not configured",
 			"The provider hasn't been configured before this operation")
+
 		return
 	}
 	client, err := r.provider.newPolarisClient()
 	if err != nil {
 		diags.AddError("Failed to create Polaris client", err.Error())
+
 		return
 	}
 	r.client = client
 }
+
 func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	r.ensureClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
@@ -175,6 +178,7 @@ func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.Crea
 	created, err := r.client.CreatePrincipal(ctx, reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create principal", err.Error())
+
 		return
 	}
 
@@ -198,6 +202,7 @@ func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.Crea
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 }
+
 func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	r.ensureClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
@@ -220,9 +225,11 @@ func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRe
 	if err != nil {
 		if isPolarisNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
+
 			return
 		}
 		resp.Diagnostics.AddError("Failed to read Polaris principal", err.Error())
+
 		return
 	}
 
@@ -268,9 +275,11 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 		var nf *polarisNotFoundError
 		if errors.As(err, &nf) {
 			resp.State.RemoveResource(ctx)
+
 			return
 		}
 		resp.Diagnostics.AddError("Failed to read Polaris principal for update", err.Error())
+
 		return
 	}
 
@@ -295,9 +304,11 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 		var nf *polarisNotFoundError
 		if errors.As(err, &nf) {
 			resp.State.RemoveResource(ctx)
+
 			return
 		}
 		resp.Diagnostics.AddError("Failed to update Polaris principal", err.Error())
+
 		return
 	}
 
@@ -307,18 +318,14 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		plan.Properties = propsVal
+		state.Properties = propsVal
 	} else {
-		plan.Properties = types.MapNull(types.StringType)
+		state.Properties = types.MapNull(types.StringType)
 	}
 
-	// Preserve credentials and name/id from previous state (credentials not returned on update).
-	plan.ID = state.ID
-	plan.Name = state.Name
-	plan.ClientID = state.ClientID
-	plan.ClientSecret = state.ClientSecret
-
-	diags = resp.State.Set(ctx, &plan)
+	// Polaris doesn't return credentials on update, and setting the secret requires
+	// a dedicated resetCredentials call after create. Preserve everything from state.
+	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 }
 
@@ -343,6 +350,7 @@ func (r *polarisPrincipalResource) Delete(ctx context.Context, req resource.Dele
 	err := r.client.DeletePrincipal(ctx, name)
 	if err != nil && !isPolarisNotFoundError(err) {
 		resp.Diagnostics.AddError("Failed to delete Polaris principal", err.Error())
+
 		return
 	}
 }
