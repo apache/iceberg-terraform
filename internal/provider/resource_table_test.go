@@ -17,6 +17,7 @@ package provider
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -395,9 +396,11 @@ func TestAccIcebergTablePartitionSpecAndSortOrder(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("iceberg_table.test", "name", tableName),
 					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.#", "1"),
-					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.source_id", "1"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.source_ids.0", "1"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.field_id", "1000"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.name", "id_bucket"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.transform", "bucket[16]"),
+
 					resource.TestCheckResourceAttr("iceberg_table.test", "sort_order.fields.#", "1"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "sort_order.fields.0.source_id", "1"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "sort_order.fields.0.transform", "identity"),
@@ -414,6 +417,14 @@ func TestAccIcebergTablePartitionSpecAndSortOrder(t *testing.T) {
 					resource.TestCheckResourceAttr("iceberg_table.test", "sort_order.fields.#", "1"),
 					resource.TestCheckResourceAttr("iceberg_table.test", "sort_order.fields.0.direction", "desc"),
 				),
+			},
+			{
+				Config:      testAccIcebergTablePartitionSortConfig(providerCfg, tableName, "bucket[32]", "invalid"),
+				ExpectError: regexp.MustCompile(`(?s)Attribute sort_order\.fields\[0\]\.direction value must be one of:.*"asc".*"desc".*got: "invalid"`),
+			},
+			{
+				Config:      testAccIcebergTableInvalidNullOrderConfig(providerCfg, tableName),
+				ExpectError: regexp.MustCompile(`(?s)Attribute sort_order\.fields\[0\]\.null_order value must be one of:.*"nulls-first".*"nulls-last".*got: "invalid"`),
 			},
 			{
 				Config: testAccIcebergTableNoPartitionSortConfig(providerCfg, tableName),
@@ -450,6 +461,39 @@ resource "iceberg_table" "test" {
 `, tableName)
 }
 
+func testAccIcebergTableInvalidNullOrderConfig(providerCfg string, tableName string) string {
+	return providerCfg + fmt.Sprintf(`
+resource "iceberg_namespace" "db3" {
+  name = ["db3"]
+}
+
+resource "iceberg_table" "test" {
+  namespace = iceberg_namespace.db3.name
+  name      = "%s"
+  schema = {
+    fields = [
+      {
+        id       = 1
+        name     = "id"
+        type     = "long"
+        required = true
+      }
+    ]
+  }
+  sort_order = {
+    fields = [
+      {
+        source_id  = 1
+        transform  = "identity"
+        direction  = "asc"
+        null_order = "invalid"
+      }
+    ]
+  }
+}
+`, tableName)
+}
+
 func testAccIcebergTablePartitionSortConfig(providerCfg string, tableName string, partitionTransform string, sortDirection string) string {
 	return providerCfg + fmt.Sprintf(`
 resource "iceberg_namespace" "db3" {
@@ -472,9 +516,10 @@ resource "iceberg_table" "test" {
   partition_spec = {
     fields = [
       {
-        source_id = 1
-        name      = "id_bucket"
-        transform = "%s"
+        source_ids = [1]
+        field_id   = 1000
+        name       = "id_bucket"
+        transform  = "%s"
       }
     ]
   }

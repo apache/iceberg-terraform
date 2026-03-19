@@ -28,6 +28,8 @@ import (
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -108,9 +110,15 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 						Required:    true,
 						NestedObject: rscschema.NestedAttributeObject{
 							Attributes: map[string]rscschema.Attribute{
-								"source_id": rscschema.Int64Attribute{
-									Description: "The source field ID.",
+								"source_ids": rscschema.ListAttribute{
+									Description: "The source field IDs.",
 									Required:    true,
+									ElementType: types.Int64Type,
+								},
+								"field_id": rscschema.Int64Attribute{
+									Description: "The partition field ID.",
+									Optional:    true,
+									Computed:    true,
 								},
 								"name": rscschema.StringAttribute{
 									Description: "The partition field name.",
@@ -146,10 +154,16 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 								"direction": rscschema.StringAttribute{
 									Description: "The sort direction (asc or desc).",
 									Required:    true,
+									Validators: []validator.String{
+										stringvalidator.OneOf("asc", "desc"),
+									},
 								},
 								"null_order": rscschema.StringAttribute{
 									Description: "The null order (nulls-first or nulls-last).",
 									Required:    true,
+									Validators: []validator.String{
+										stringvalidator.OneOf("nulls-first", "nulls-last"),
+									},
 								},
 							},
 						},
@@ -649,11 +663,7 @@ func (r *icebergTableResource) calculateSortOrderUpdates(ctx context.Context, pl
 	if plan.SortOrder.IsUnknown() {
 		if tbl.SortOrder().OrderID() != 0 {
 			// Create a new unsorted order and set it as default
-			unsortedOrder, err := table.NewSortOrder(0, []table.SortField{})
-			if err != nil {
-				diags.AddError("failed to create unsorted order", err.Error())
-				return nil
-			}
+			unsortedOrder := table.UnsortedSortOrder
 			return []table.Update{
 				table.NewAddSortOrderUpdate(&unsortedOrder),
 				table.NewSetDefaultSortOrderUpdate(0),

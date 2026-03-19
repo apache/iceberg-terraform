@@ -123,25 +123,32 @@ func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) 
 }
 
 func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpec) error {
-	b, err := json.Marshal(icebergSpec)
-	if err != nil {
-		return err
+	s.Fields = make([]icebergTablePartitionField, 0, icebergSpec.NumFields())
+	for field := range icebergSpec.Fields() {
+		fieldID := int64(field.FieldID)
+		s.Fields = append(s.Fields, icebergTablePartitionField{
+			SourceIDs: []int64{int64(field.SourceID)},
+			FieldID:   &fieldID,
+			Name:      field.Name,
+			Transform: field.Transform.String(),
+		})
 	}
-	return json.Unmarshal(b, s)
+	return nil
 }
 
 type icebergTablePartitionField struct {
-	SourceID  int64  `tfsdk:"source_id" json:"source-id"`
-	FieldID   int64  `tfsdk:"-" json:"field-id"`
-	Name      string `tfsdk:"name" json:"name"`
-	Transform string `tfsdk:"transform" json:"transform"`
+	SourceIDs []int64 `tfsdk:"source_ids" json:"source-ids"`
+	FieldID   *int64  `tfsdk:"field_id" json:"field-id,omitempty"`
+	Name      string  `tfsdk:"name" json:"name"`
+	Transform string  `tfsdk:"transform" json:"transform"`
 }
 
 func (icebergTablePartitionField) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
-		"source_id": types.Int64Type,
-		"name":      types.StringType,
-		"transform": types.StringType,
+		"source_ids": types.ListType{ElemType: types.Int64Type},
+		"field_id":   types.Int64Type,
+		"name":       types.StringType,
+		"transform":  types.StringType,
 	}
 }
 

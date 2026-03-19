@@ -20,6 +20,7 @@ go 1.25.1
 require (
 	github.com/apache/iceberg-go v0.4.1-0.20260201105728-7cfbf238ee7f
 	github.com/hashicorp/terraform-plugin-framework v1.17.0
+	github.com/hashicorp/terraform-plugin-framework-validators v0.17.0
 	github.com/hashicorp/terraform-plugin-go v0.29.0
 	github.com/hashicorp/terraform-plugin-log v0.10.0
 	github.com/hashicorp/terraform-plugin-testing v1.14.0
