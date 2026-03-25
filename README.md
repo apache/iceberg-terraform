@@ -19,6 +19,33 @@
 
 This [Terraform](https://terraform.io) and [OpenTofu](https://www.opentofu.org/) provider allows you to manage Iceberg resources, such as namespaces and tables.
 
+## Supported Resources
+
+The provider currently supports the following resources:
+
+- `iceberg_namespace`: Manage Iceberg namespaces and their properties.
+- `iceberg_table`: Manage Iceberg tables, including schema definitions and properties.
+
+## Local Development
+
+### Prerequisites
+
+- [Go](https://golang.org/doc/install) (1.25.1 or later)
+- [Terraform](https://www.terraform.io/downloads.html) or [OpenTofu](https://opentofu.org/docs/intro/install/)
+
+### Building the Provider
+
+To build the provider and install it locally , run the `build.sh` script:
+
+```bash
+./build.sh
+```
+
+This script will:
+1. Compile the provider binary.
+2. Create a local provider registry at `./terraform-plugins`.
+3. Provide a configuration snippet for your `~/.terraformrc` (or `terraform.rc`) file to point Terraform to this local registry.
+
 ## Get in Touch
 
 - [Iceberg community](https://iceberg.apache.org/community/)
