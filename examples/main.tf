@@ -18,8 +18,10 @@ provider "iceberg" {
 }
 
 resource "iceberg_namespace" "example" {
-  name        = ["example_namespace"]
-  description = "An example namespace"
+  name = ["example_namespace"]
+  user_properties = {
+    description = "An example namespace"
+  }
 }
 
 resource "iceberg_table" "example" {
