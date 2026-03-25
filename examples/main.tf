@@ -39,8 +39,8 @@ resource "iceberg_table" "example" {
         required = false
       },
       {
-        name     = "tags"
-        type     = "list"
+        name = "tags"
+        type = "list"
         list_properties = {
           element_id       = 3
           element_type     = "string"
