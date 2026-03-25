@@ -13,10 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-provider "iceberg" {
-  catalog_uri = "http://localhost:8181"
-}
-
 resource "iceberg_namespace" "example" {
   name = ["example_namespace"]
   user_properties = {

@@ -13,43 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-provider "iceberg" {
-  catalog_uri = "http://localhost:8181"
-}
+//go:build generate
 
-resource "iceberg_namespace" "example" {
-  name = ["example_namespace"]
-  user_properties = {
-    description = "An example namespace"
-  }
-}
+package tools
 
-resource "iceberg_table" "example" {
-  namespace = iceberg_namespace.example.name
-  name      = "example_table"
+import (
+	_ "github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs"
+)
 
-  schema = {
-    fields = [
-      {
-        name     = "id"
-        type     = "long"
-        required = true
-      },
-      {
-        name     = "data"
-        type     = "string"
-        required = false
-      },
-      {
-        name = "tags"
-        type = "list"
-        list_properties = {
-          element_id       = 3
-          element_type     = "string"
-          element_required = true
-        }
-        required = false
-      }
-    ]
-  }
-}
+// Format Terraform code for use in documentation.
+//go:generate terraform fmt -recursive ../examples/
+
+// Generate documentation.
+//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-dir .. --provider-name iceberg --rendered-provider-name Iceberg
