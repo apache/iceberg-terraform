@@ -41,7 +41,8 @@ func NewPolarisPrincipalResource() resource.Resource {
 
 type polarisPrincipalResource struct {
 	provider *icebergProvider
-	client   *polarisClient
+	// managementClient calls Polaris Management API only; catalog access uses iceberg-go REST via catalog_uri.
+	managementClient *polarisManagementClient
 }
 
 type polarisPrincipalResourceModel struct {
@@ -114,8 +115,8 @@ func (r *polarisPrincipalResource) Configure(_ context.Context, req resource.Con
 	r.provider = provider
 }
 
-func (r *polarisPrincipalResource) ensureClient(ctx context.Context, diags *diag.Diagnostics) {
-	if r.client != nil {
+func (r *polarisPrincipalResource) ensureManagementClient(ctx context.Context, diags *diag.Diagnostics) {
+	if r.managementClient != nil {
 		return
 	}
 	if r.provider == nil {
@@ -125,17 +126,17 @@ func (r *polarisPrincipalResource) ensureClient(ctx context.Context, diags *diag
 
 		return
 	}
-	client, err := r.provider.newPolarisClient()
+	client, err := r.provider.newPolarisManagementClient()
 	if err != nil {
-		diags.AddError("Failed to create Polaris client", err.Error())
+		diags.AddError("Failed to create Polaris management API client", err.Error())
 
 		return
 	}
-	r.client = client
+	r.managementClient = client
 }
 
 func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	r.ensureClient(ctx, &resp.Diagnostics)
+	r.ensureManagementClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -175,7 +176,7 @@ func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.Crea
 
 	tflog.Info(ctx, "Creating Polaris principal", map[string]any{"name": name})
 
-	created, err := r.client.CreatePrincipal(ctx, reqBody)
+	created, err := r.managementClient.CreatePrincipal(ctx, reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create principal", err.Error())
 
@@ -204,7 +205,7 @@ func (r *polarisPrincipalResource) Create(ctx context.Context, req resource.Crea
 }
 
 func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	r.ensureClient(ctx, &resp.Diagnostics)
+	r.ensureManagementClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -221,7 +222,7 @@ func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRe
 
 	tflog.Info(ctx, "Reading Polaris principal", map[string]any{"name": name})
 
-	principal, err := r.client.GetPrincipal(ctx, name)
+	principal, err := r.managementClient.GetPrincipal(ctx, name)
 	if err != nil {
 		if isPolarisNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -250,7 +251,7 @@ func (r *polarisPrincipalResource) Read(ctx context.Context, req resource.ReadRe
 }
 
 func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	r.ensureClient(ctx, &resp.Diagnostics)
+	r.ensureManagementClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -270,7 +271,7 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 	name := state.Name.ValueString()
 
 	// Fetch current entity version from API so we don't require users to track it; Terraform manages it internally.
-	current, err := r.client.GetPrincipal(ctx, name)
+	current, err := r.managementClient.GetPrincipal(ctx, name)
 	if err != nil {
 		var nf *polarisNotFoundError
 		if errors.As(err, &nf) {
@@ -299,7 +300,7 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 
 	tflog.Info(ctx, "Updating Polaris principal", map[string]any{"name": name})
 
-	updated, err := r.client.UpdatePrincipal(ctx, name, updateReq)
+	updated, err := r.managementClient.UpdatePrincipal(ctx, name, updateReq)
 	if err != nil {
 		var nf *polarisNotFoundError
 		if errors.As(err, &nf) {
@@ -330,7 +331,7 @@ func (r *polarisPrincipalResource) Update(ctx context.Context, req resource.Upda
 }
 
 func (r *polarisPrincipalResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	r.ensureClient(ctx, &resp.Diagnostics)
+	r.ensureManagementClient(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -347,7 +348,7 @@ func (r *polarisPrincipalResource) Delete(ctx context.Context, req resource.Dele
 
 	tflog.Info(ctx, "Deleting Polaris principal", map[string]any{"name": name})
 
-	err := r.client.DeletePrincipal(ctx, name)
+	err := r.managementClient.DeletePrincipal(ctx, name)
 	if err != nil && !isPolarisNotFoundError(err) {
 		resp.Diagnostics.AddError("Failed to delete Polaris principal", err.Error())
 
