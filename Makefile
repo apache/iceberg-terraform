@@ -13,10 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: test-integration test-integration-setup test-integration-exec test-integration-cleanup docs
-
-docs: ## Generate provider documentation
-	go generate -tags generate ./...
+.PHONY: test-integration test-integration-setup test-integration-exec test-integration-cleanup
 
 test-integration-setup: ## Start Docker services for integration tests
 	docker compose -f dev/docker-compose.yml kill
