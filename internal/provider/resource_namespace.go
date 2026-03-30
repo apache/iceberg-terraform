@@ -23,6 +23,7 @@ import (
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
@@ -407,4 +408,17 @@ func (r *icebergNamespaceResource) Delete(ctx context.Context, req resource.Dele
 		resp.Diagnostics.AddError("failed to drop namespace", err.Error())
 		return
 	}
+}
+
+func (r *icebergNamespaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+
+	nameParts := strings.Split(req.ID, ".")
+	nameList, diags := types.ListValueFrom(ctx, types.StringType, nameParts)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), nameList)...)
 }

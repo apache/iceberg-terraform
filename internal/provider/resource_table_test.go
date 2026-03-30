@@ -44,6 +44,14 @@ func TestAccIcebergTable(t *testing.T) {
 					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.0.type", "long"),
 				),
 			},
+			{
+				ResourceName:      "iceberg_table.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"server_properties",
+				},
+			},
 		},
 	})
 }

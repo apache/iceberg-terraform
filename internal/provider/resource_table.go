@@ -24,6 +24,7 @@ import (
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/table"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -808,4 +809,29 @@ func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRe
 		resp.Diagnostics.AddError("failed to drop table", err.Error())
 		return
 	}
+}
+
+func (r *icebergTableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+
+	parts := strings.Split(req.ID, ".")
+	if len(parts) < 2 {
+		resp.Diagnostics.AddError(
+			"Invalid Import ID",
+			"The import ID should be a dot-separated full identifier (namespace + name).",
+		)
+		return
+	}
+
+	tableName := parts[len(parts)-1]
+	namespaceParts := parts[:len(parts)-1]
+
+	namespaceList, diags := types.ListValueFrom(ctx, types.StringType, namespaceParts)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), types.StringValue(tableName))...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("namespace"), namespaceList)...)
 }

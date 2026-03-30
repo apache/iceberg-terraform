@@ -76,6 +76,14 @@ func TestAccIcebergNamespace(t *testing.T) {
 					resource.TestCheckNoResourceAttr("iceberg_namespace.test", "server_properties.description"),
 				),
 			},
+			{
+				ResourceName:      "iceberg_namespace.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"server_properties",
+				},
+			},
 		},
 	})
 }
