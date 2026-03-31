@@ -814,7 +814,11 @@ func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRe
 func (r *icebergTableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 
-	parts := strings.Split(req.ID, ".")
+	// FieldsFunc is used to split by dot and filter out empty segments (e.g. "a..b" -> ["a", "b"])
+	parts := strings.FieldsFunc(req.ID, func(r rune) bool {
+		return r == '.'
+	})
+
 	if len(parts) < 2 {
 		resp.Diagnostics.AddError(
 			"Invalid Import ID",

@@ -413,7 +413,11 @@ func (r *icebergNamespaceResource) Delete(ctx context.Context, req resource.Dele
 func (r *icebergNamespaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 
-	nameParts := strings.Split(req.ID, ".")
+	// FieldsFunc is used to split by dot and filter out empty segments (e.g. "a..b" -> ["a", "b"])
+	nameParts := strings.FieldsFunc(req.ID, func(r rune) bool {
+		return r == '.'
+	})
+
 	nameList, diags := types.ListValueFrom(ctx, types.StringType, nameParts)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
