@@ -68,3 +68,11 @@ resource "iceberg_namespace" "example" {
 
 - `id` (String) The ID of this resource.
 - `server_properties` (Map of String) Full properties returned by the server for the namespace. This includes properties set by the user and properties set by the server.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+$ terraform import iceberg_namespace a.b.c
+```

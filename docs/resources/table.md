@@ -397,3 +397,10 @@ Required:
 - `null_order` (String) The null order (nulls-first or nulls-last).
 - `source_id` (Number) The source field ID.
 - `transform` (String) The sort transform.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+$ terraform import iceberg_table a.b.table_name
