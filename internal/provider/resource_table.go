@@ -88,7 +88,6 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
-						Optional:    true,
 						Computed:    true,
 					},
 					"fields": rscschema.ListNestedAttribute{
@@ -105,6 +104,10 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
+					"spec_id": rscschema.Int64Attribute{
+						Description: "The partition spec ID.",
+						Computed:    true,
+					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the partition spec.",
 						Required:    true,
@@ -118,7 +121,6 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 								"field_id": rscschema.Int64Attribute{
 									Description: "The partition field ID.",
 									Optional:    true,
-									Computed:    true,
 								},
 								"name": rscschema.StringAttribute{
 									Description: "The partition field name.",
@@ -138,6 +140,10 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
+					"order_id": rscschema.Int64Attribute{
+						Description: "The sort order ID.",
+						Computed:    true,
+					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the sort order.",
 						Required:    true,
@@ -183,13 +189,11 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 		},
 	}
 }
-
 func schemaFieldAttributes(depth int) map[string]rscschema.Attribute {
 	attrs := map[string]rscschema.Attribute{
 		"id": rscschema.Int64Attribute{
 			Description: "The field ID.",
 			Optional:    true,
-			Computed:    true,
 		},
 		"name": rscschema.StringAttribute{
 			Description: "The field name.",
@@ -598,15 +602,19 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 		return nil
 	}
 
-	planJson, _ := planSchema.MarshalJSON()
-	stateJson, _ := stateSchema.MarshalJSON()
+	newIcebergSchema, err := planSchema.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert plan schema", err.Error())
+		return nil
+	}
 
-	if string(planJson) != string(stateJson) {
-		newIcebergSchema, err := planSchema.ToIceberg()
-		if err != nil {
-			diags.AddError("failed to convert schema", err.Error())
-			return nil
-		}
+	oldIcebergSchema, err := stateSchema.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert state schema", err.Error())
+		return nil
+	}
+
+	if !newIcebergSchema.Equals(oldIcebergSchema) {
 		return []table.Update{
 			table.NewAddSchemaUpdate(newIcebergSchema),
 			table.NewSetCurrentSchemaUpdate(-1),
