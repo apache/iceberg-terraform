@@ -113,6 +113,10 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
+					"spec_id": rscschema.Int64Attribute{
+						Description: "The partition spec ID.",
+						Computed:    true,
+					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the partition spec.",
 						Required:    true,
@@ -146,6 +150,10 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
+					"order_id": rscschema.Int64Attribute{
+						Description: "The sort order ID.",
+						Computed:    true,
+					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the sort order.",
 						Required:    true,
@@ -197,7 +205,6 @@ func schemaFieldAttributes(depth int) map[string]rscschema.Attribute {
 		"id": rscschema.Int64Attribute{
 			Description: "The field ID.",
 			Optional:    true,
-			Computed:    true,
 		},
 		"name": rscschema.StringAttribute{
 			Description: "The field name.",
