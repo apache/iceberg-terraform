@@ -536,3 +536,123 @@ resource "iceberg_table" "test" {
 }
 `, tableName, partitionTransform, sortDirection)
 }
+
+func TestAccIcebergTableAddPartitionSpec(t *testing.T) {
+	catalogURI := os.Getenv("ICEBERG_CATALOG_URI")
+	if catalogURI == "" {
+		catalogURI = "http://localhost:8181"
+	}
+
+	providerCfg := fmt.Sprintf(providerConfig, catalogURI)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccIcebergTableResourceConfig(providerCfg, "partition_add"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "name", "partition_add"),
+				),
+			},
+			{
+				Config: testAccIcebergTablePartitionConfig(providerCfg, "partition_add"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.#", "1"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "partition_spec.fields.0.name", "id_partition"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccIcebergTableRename(t *testing.T) {
+	catalogURI := os.Getenv("ICEBERG_CATALOG_URI")
+	if catalogURI == "" {
+		catalogURI = "http://localhost:8181"
+	}
+
+	providerCfg := fmt.Sprintf(providerConfig, catalogURI)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccIcebergTableResourceConfig(providerCfg, "rename_test"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "name", "rename_test"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.0.name", "id"),
+				),
+			},
+			{
+				Config: testAccIcebergTableRenameConfig(providerCfg, "rename_test_new", "id_new"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("iceberg_table.test", "name", "rename_test_new"),
+					resource.TestCheckResourceAttr("iceberg_table.test", "schema.fields.0.name", "id_new"),
+				),
+			},
+		},
+	})
+}
+
+func testAccIcebergTablePartitionConfig(providerCfg string, tableName string) string {
+	return providerCfg + fmt.Sprintf(`
+resource "iceberg_namespace" "db_partition" {
+  name = ["db_partition"]
+}
+
+resource "iceberg_table" "test" {
+  namespace = iceberg_namespace.db_partition.name
+  name      = "%s"
+  schema = {
+    fields = [
+      {
+        id       = 1
+        name     = "id"
+        type     = "long"
+        required = true
+      }
+    ]
+  }
+  partition_spec = {
+    fields = [
+      {
+        source_ids = [1]
+        name       = "id_partition"
+        transform  = "identity"
+      }
+    ]
+  }
+}
+`, tableName)
+}
+
+func testAccIcebergTableRenameConfig(providerCfg string, tableName string, colName string) string {
+	return providerCfg + fmt.Sprintf(`
+resource "iceberg_namespace" "db_rename" {
+  name = ["db_rename"]
+}
+
+resource "iceberg_table" "test" {
+  namespace = iceberg_namespace.db_rename.name
+  name      = "%s"
+  schema = {
+    fields = [
+      {
+        id       = 1
+        name     = "%s"
+        type     = "long"
+        required = true
+      },
+      {
+        id       = 2
+        name     = "data"
+        type     = "string"
+        required = false
+      }
+    ]
+  }
+}
+`, tableName, colName)
+}

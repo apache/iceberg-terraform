@@ -17,6 +17,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -77,10 +79,16 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description: "The namespace of the table.",
 				Required:    true,
 				ElementType: types.StringType,
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplace(),
+				},
 			},
 			"name": rscschema.StringAttribute{
 				Description: "The name of the table.",
 				Required:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"schema": rscschema.SingleNestedAttribute{
 				Description: "The schema of the table.",
@@ -88,6 +96,7 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
+						Optional:    true,
 						Computed:    true,
 					},
 					"fields": rscschema.ListNestedAttribute{
@@ -104,10 +113,6 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
-					"spec_id": rscschema.Int64Attribute{
-						Description: "The partition spec ID.",
-						Computed:    true,
-					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the partition spec.",
 						Required:    true,
@@ -121,6 +126,7 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 								"field_id": rscschema.Int64Attribute{
 									Description: "The partition field ID.",
 									Optional:    true,
+									Computed:    true,
 								},
 								"name": rscschema.StringAttribute{
 									Description: "The partition field name.",
@@ -140,10 +146,6 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Computed:    true,
 				Attributes: map[string]rscschema.Attribute{
-					"order_id": rscschema.Int64Attribute{
-						Description: "The sort order ID.",
-						Computed:    true,
-					},
 					"fields": rscschema.ListNestedAttribute{
 						Description: "The fields of the sort order.",
 						Required:    true,
@@ -189,11 +191,13 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 		},
 	}
 }
+
 func schemaFieldAttributes(depth int) map[string]rscschema.Attribute {
 	attrs := map[string]rscschema.Attribute{
 		"id": rscschema.Int64Attribute{
 			Description: "The field ID.",
 			Optional:    true,
+			Computed:    true,
 		},
 		"name": rscschema.StringAttribute{
 			Description: "The field name.",
@@ -318,6 +322,11 @@ func (r *icebergTableResource) ConfigureCatalog(ctx context.Context, diags *diag
 			"Provider not configured",
 			"The provider hasn't been configured before this operation",
 		)
+		return
+	}
+
+	if r.provider.catalogURI == "" {
+		// The provider might not be fully configured yet (e.g. during plan if URI is unknown)
 		return
 	}
 
@@ -476,6 +485,7 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "Inside table update")
 	r.ConfigureCatalog(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
@@ -494,13 +504,13 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	var namespaceName []string
-	diags = plan.Namespace.ElementsAs(ctx, &namespaceName, false)
+	diags = state.Namespace.ElementsAs(ctx, &namespaceName, false)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	tableName := plan.Name.ValueString()
+	tableName := state.Name.ValueString()
 	tableIdent := append(namespaceName, tableName)
 
 	tbl, err := r.catalog.LoadTable(ctx, tableIdent)
@@ -602,26 +612,31 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 		return nil
 	}
 
-	newIcebergSchema, err := planSchema.ToIceberg()
+	planIceberg, err := planSchema.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert plan schema", err.Error())
 		return nil
 	}
-
-	oldIcebergSchema, err := stateSchema.ToIceberg()
+	stateIceberg, err := stateSchema.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert state schema", err.Error())
 		return nil
 	}
 
-	if !newIcebergSchema.Equals(oldIcebergSchema) {
-		return []table.Update{
-			table.NewAddSchemaUpdate(newIcebergSchema),
-			table.NewSetCurrentSchemaUpdate(-1),
-		}
+	// Normalize by comparing the JSON of the fields list only.
+	// This ignores the top-level schema-id and any other schema-level metadata
+	// while ensuring every field change (name, type, id, etc.) is detected.
+	planFieldsJson, _ := json.Marshal(planIceberg.Fields())
+	stateFieldsJson, _ := json.Marshal(stateIceberg.Fields())
+
+	if string(planFieldsJson) == string(stateFieldsJson) {
+		return nil
 	}
 
-	return nil
+	return []table.Update{
+		table.NewAddSchemaUpdate(planIceberg),
+		table.NewSetCurrentSchemaUpdate(-1),
+	}
 }
 
 func (r *icebergTableResource) calculatePartitionUpdates(ctx context.Context, plan *icebergTableResourceModel, tbl *table.Table, diags *diag.Diagnostics) []table.Update {
