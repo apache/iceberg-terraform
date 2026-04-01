@@ -96,6 +96,7 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Attributes: map[string]rscschema.Attribute{
 					"id": rscschema.Int64Attribute{
 						Description: "The schema ID.",
+						Optional:    true,
 						Computed:    true,
 					},
 					"fields": rscschema.ListNestedAttribute{
