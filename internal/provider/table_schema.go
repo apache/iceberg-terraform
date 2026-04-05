@@ -43,12 +43,13 @@ func (s icebergTableSchema) AttrTypes() map[string]attr.Type {
 
 func (s icebergTableSchema) MarshalJSON() ([]byte, error) {
 	type Alias struct {
-		ID     int64                     `json:"schema-id"`
+		ID     *int64                    `json:"schema-id,omitempty"`
 		Fields []icebergTableSchemaField `json:"fields"`
 	}
-	var id int64
+	var id *int64
 	if !s.ID.IsNull() && !s.ID.IsUnknown() {
-		id = s.ID.ValueInt64()
+		val := s.ID.ValueInt64()
+		id = &val
 	}
 	return json.Marshal(&struct {
 		Type string `json:"type"`
@@ -97,17 +98,49 @@ func (s *icebergTableSchema) FromIceberg(icebergSchema *iceberg.Schema) error {
 }
 
 type icebergTablePartitionSpec struct {
+	SpecID types.Int64                  `tfsdk:"spec_id" json:"spec-id"`
 	Fields []icebergTablePartitionField `tfsdk:"fields" json:"fields"`
 }
 
 func (s icebergTablePartitionSpec) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
+		"spec_id": types.Int64Type,
 		"fields": types.ListType{
 			ElemType: types.ObjectType{
 				AttrTypes: icebergTablePartitionField{}.AttrTypes(),
 			},
 		},
 	}
+}
+
+func (s icebergTablePartitionSpec) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		SpecID *int                         `json:"spec-id,omitempty"`
+		Fields []icebergTablePartitionField `json:"fields"`
+	}
+	var specID *int
+	if !s.SpecID.IsNull() && !s.SpecID.IsUnknown() {
+		val := int(s.SpecID.ValueInt64())
+		specID = &val
+	}
+	return json.Marshal(&Alias{
+		SpecID: specID,
+		Fields: s.Fields,
+	})
+}
+
+func (s *icebergTablePartitionSpec) UnmarshalJSON(b []byte) error {
+	type Alias struct {
+		SpecID int                          `json:"spec-id"`
+		Fields []icebergTablePartitionField `json:"fields"`
+	}
+	var raw Alias
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.SpecID = types.Int64Value(int64(raw.SpecID))
+	s.Fields = raw.Fields
+	return nil
 }
 
 func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) {
@@ -123,12 +156,12 @@ func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) 
 }
 
 func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpec) error {
+	s.SpecID = types.Int64Value(int64(icebergSpec.ID()))
 	s.Fields = make([]icebergTablePartitionField, 0, icebergSpec.NumFields())
 	for field := range icebergSpec.Fields() {
-		fieldID := int64(field.FieldID)
 		s.Fields = append(s.Fields, icebergTablePartitionField{
 			SourceIDs: []int64{int64(field.SourceID)},
-			FieldID:   &fieldID,
+			FieldID:   types.Int64Value(int64(field.FieldID)),
 			Name:      field.Name,
 			Transform: field.Transform.String(),
 		})
@@ -137,10 +170,47 @@ func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpe
 }
 
 type icebergTablePartitionField struct {
-	SourceIDs []int64 `tfsdk:"source_ids" json:"source-ids"`
-	FieldID   *int64  `tfsdk:"field_id" json:"field-id,omitempty"`
-	Name      string  `tfsdk:"name" json:"name"`
-	Transform string  `tfsdk:"transform" json:"transform"`
+	SourceIDs []int64     `tfsdk:"source_ids" json:"source-ids"`
+	FieldID   types.Int64 `tfsdk:"field_id" json:"field-id,omitempty"`
+	Name      string      `tfsdk:"name" json:"name"`
+	Transform string      `tfsdk:"transform" json:"transform"`
+}
+
+func (f icebergTablePartitionField) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		SourceIDs []int64 `json:"source-ids"`
+		FieldID   int64   `json:"field-id,omitempty"`
+		Name      string  `json:"name"`
+		Transform string  `json:"transform"`
+	}
+	var fieldID int64
+	if !f.FieldID.IsNull() && !f.FieldID.IsUnknown() {
+		fieldID = f.FieldID.ValueInt64()
+	}
+	return json.Marshal(&Alias{
+		SourceIDs: f.SourceIDs,
+		FieldID:   fieldID,
+		Name:      f.Name,
+		Transform: f.Transform,
+	})
+}
+
+func (f *icebergTablePartitionField) UnmarshalJSON(b []byte) error {
+	type Alias struct {
+		SourceIDs []int64 `json:"source-ids"`
+		FieldID   int64   `json:"field-id"`
+		Name      string  `json:"name"`
+		Transform string  `json:"transform"`
+	}
+	var raw Alias
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	f.SourceIDs = raw.SourceIDs
+	f.FieldID = types.Int64Value(raw.FieldID)
+	f.Name = raw.Name
+	f.Transform = raw.Transform
+	return nil
 }
 
 func (icebergTablePartitionField) AttrTypes() map[string]attr.Type {
@@ -153,17 +223,49 @@ func (icebergTablePartitionField) AttrTypes() map[string]attr.Type {
 }
 
 type icebergTableSortOrder struct {
-	Fields []icebergTableSortField `tfsdk:"fields" json:"fields"`
+	OrderID types.Int64             `tfsdk:"order_id" json:"order-id"`
+	Fields  []icebergTableSortField `tfsdk:"fields" json:"fields"`
 }
 
 func (s icebergTableSortOrder) AttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
+		"order_id": types.Int64Type,
 		"fields": types.ListType{
 			ElemType: types.ObjectType{
 				AttrTypes: icebergTableSortField{}.AttrTypes(),
 			},
 		},
 	}
+}
+
+func (s icebergTableSortOrder) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		OrderID *int                    `json:"order-id,omitempty"`
+		Fields  []icebergTableSortField `json:"fields"`
+	}
+	var orderID *int
+	if !s.OrderID.IsNull() && !s.OrderID.IsUnknown() {
+		val := int(s.OrderID.ValueInt64())
+		orderID = &val
+	}
+	return json.Marshal(&Alias{
+		OrderID: orderID,
+		Fields:  s.Fields,
+	})
+}
+
+func (s *icebergTableSortOrder) UnmarshalJSON(b []byte) error {
+	type Alias struct {
+		OrderID int                     `json:"order-id"`
+		Fields  []icebergTableSortField `json:"fields"`
+	}
+	var raw Alias
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.OrderID = types.Int64Value(int64(raw.OrderID))
+	s.Fields = raw.Fields
+	return nil
 }
 
 func (s *icebergTableSortOrder) ToIceberg() (table.SortOrder, error) {
@@ -179,6 +281,7 @@ func (s *icebergTableSortOrder) ToIceberg() (table.SortOrder, error) {
 }
 
 func (s *icebergTableSortOrder) FromIceberg(icebergOrder table.SortOrder) error {
+	s.OrderID = types.Int64Value(int64(icebergOrder.OrderID()))
 	b, err := json.Marshal(icebergOrder)
 	if err != nil {
 		return err
