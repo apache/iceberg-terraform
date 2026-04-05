@@ -56,11 +56,11 @@ func isPolarisNotFoundError(err error) bool {
 
 func (p *icebergProvider) newPolarisManagementClient() (*polarisManagementClient, error) {
 	if p.polaris == nil || p.polaris.managementURI == "" {
-		return nil, fmt.Errorf("polaris is not configured: set type = \"polaris\" and ensure polaris_management_uri is set or derivable from catalog_uri")
+		return nil, errors.New("polaris is not configured: set type = \"polaris\" and ensure polaris_settings.management_uri is set or derivable from catalog_uri")
 	}
 	u, err := url.Parse(p.polaris.managementURI)
 	if err != nil {
-		return nil, fmt.Errorf("invalid polaris_management_uri %q: %w", p.polaris.managementURI, err)
+		return nil, fmt.Errorf("invalid polaris_settings.management_uri %q: %w", p.polaris.managementURI, err)
 	}
 
 	return &polarisManagementClient{
@@ -194,4 +194,53 @@ func (c *polarisManagementClient) UpdatePrincipal(ctx context.Context, name stri
 
 func (c *polarisManagementClient) DeletePrincipal(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/principals/"+url.PathEscape(name), nil, nil, nil)
+}
+
+type polarisPrincipalRole struct {
+	Name                string            `json:"name"`
+	Federated           *bool             `json:"federated,omitempty"`
+	Properties          map[string]string `json:"properties,omitempty"`
+	EntityVersion       int64             `json:"entityVersion,omitempty"`
+	CreateTimestamp     int64             `json:"createTimestamp,omitempty"`
+	LastUpdateTimestamp int64             `json:"lastUpdateTimestamp,omitempty"`
+}
+
+type polarisCreatePrincipalRoleRequest struct {
+	PrincipalRole polarisPrincipalRole `json:"principalRole"`
+}
+
+type polarisUpdatePrincipalRoleRequest struct {
+	CurrentEntityVersion int64             `json:"currentEntityVersion"`
+	Properties           map[string]string `json:"properties"`
+}
+
+func (c *polarisManagementClient) CreatePrincipalRole(ctx context.Context, req polarisCreatePrincipalRoleRequest) (*polarisPrincipalRole, error) {
+	var out polarisPrincipalRole
+	if err := c.do(ctx, http.MethodPost, "/principal-roles", nil, req, &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
+func (c *polarisManagementClient) GetPrincipalRole(ctx context.Context, name string) (*polarisPrincipalRole, error) {
+	var out polarisPrincipalRole
+	if err := c.do(ctx, http.MethodGet, "/principal-roles/"+url.PathEscape(name), nil, nil, &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
+func (c *polarisManagementClient) UpdatePrincipalRole(ctx context.Context, name string, req polarisUpdatePrincipalRoleRequest) (*polarisPrincipalRole, error) {
+	var out polarisPrincipalRole
+	if err := c.do(ctx, http.MethodPut, "/principal-roles/"+url.PathEscape(name), nil, req, &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
+func (c *polarisManagementClient) DeletePrincipalRole(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/principal-roles/"+url.PathEscape(name), nil, nil, nil)
 }
