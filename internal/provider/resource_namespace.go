@@ -119,6 +119,11 @@ func (r *icebergNamespaceResource) ConfigureCatalog(ctx context.Context, diags *
 		return
 	}
 
+	if r.provider.catalogURI == "" {
+		// The provider might not be fully configured yet (e.g. during plan if URI is unknown)
+		return
+	}
+
 	catalog, err := r.provider.NewCatalog(ctx)
 	if err != nil {
 		diags.AddError(

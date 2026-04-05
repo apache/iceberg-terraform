@@ -125,10 +125,9 @@ func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) 
 func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpec) error {
 	s.Fields = make([]icebergTablePartitionField, 0, icebergSpec.NumFields())
 	for field := range icebergSpec.Fields() {
-		fieldID := int64(field.FieldID)
 		s.Fields = append(s.Fields, icebergTablePartitionField{
 			SourceIDs: []int64{int64(field.SourceID)},
-			FieldID:   &fieldID,
+			FieldID:   types.Int64Value(int64(field.FieldID)),
 			Name:      field.Name,
 			Transform: field.Transform.String(),
 		})
@@ -137,10 +136,47 @@ func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpe
 }
 
 type icebergTablePartitionField struct {
-	SourceIDs []int64 `tfsdk:"source_ids" json:"source-ids"`
-	FieldID   *int64  `tfsdk:"field_id" json:"field-id,omitempty"`
-	Name      string  `tfsdk:"name" json:"name"`
-	Transform string  `tfsdk:"transform" json:"transform"`
+	SourceIDs []int64     `tfsdk:"source_ids" json:"source-ids"`
+	FieldID   types.Int64 `tfsdk:"field_id" json:"field-id,omitempty"`
+	Name      string      `tfsdk:"name" json:"name"`
+	Transform string      `tfsdk:"transform" json:"transform"`
+}
+
+func (f icebergTablePartitionField) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		SourceIDs []int64 `json:"source-ids"`
+		FieldID   int64   `json:"field-id,omitempty"`
+		Name      string  `json:"name"`
+		Transform string  `json:"transform"`
+	}
+	var fieldID int64
+	if !f.FieldID.IsNull() && !f.FieldID.IsUnknown() {
+		fieldID = f.FieldID.ValueInt64()
+	}
+	return json.Marshal(&Alias{
+		SourceIDs: f.SourceIDs,
+		FieldID:   fieldID,
+		Name:      f.Name,
+		Transform: f.Transform,
+	})
+}
+
+func (f *icebergTablePartitionField) UnmarshalJSON(b []byte) error {
+	type Alias struct {
+		SourceIDs []int64 `json:"source-ids"`
+		FieldID   int64   `json:"field-id"`
+		Name      string  `json:"name"`
+		Transform string  `json:"transform"`
+	}
+	var raw Alias
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	f.SourceIDs = raw.SourceIDs
+	f.FieldID = types.Int64Value(raw.FieldID)
+	f.Name = raw.Name
+	f.Transform = raw.Transform
+	return nil
 }
 
 func (icebergTablePartitionField) AttrTypes() map[string]attr.Type {

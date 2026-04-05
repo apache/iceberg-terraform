@@ -17,6 +17,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rscschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -78,10 +80,16 @@ func (r *icebergTableResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description: "The namespace of the table.",
 				Required:    true,
 				ElementType: types.StringType,
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplace(),
+				},
 			},
 			"name": rscschema.StringAttribute{
 				Description: "The name of the table.",
 				Required:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"schema": rscschema.SingleNestedAttribute{
 				Description: "The schema of the table.",
@@ -318,6 +326,11 @@ func (r *icebergTableResource) ConfigureCatalog(ctx context.Context, diags *diag
 		return
 	}
 
+	if r.provider.catalogURI == "" {
+		// The provider might not be fully configured yet (e.g. during plan if URI is unknown)
+		return
+	}
+
 	catalog, err := r.provider.NewCatalog(ctx)
 	if err != nil {
 		diags.AddError(
@@ -473,6 +486,7 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "Inside table update")
 	r.ConfigureCatalog(ctx, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
@@ -491,13 +505,13 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	var namespaceName []string
-	diags = plan.Namespace.ElementsAs(ctx, &namespaceName, false)
+	diags = state.Namespace.ElementsAs(ctx, &namespaceName, false)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	tableName := plan.Name.ValueString()
+	tableName := state.Name.ValueString()
 	tableIdent := append(namespaceName, tableName)
 
 	tbl, err := r.catalog.LoadTable(ctx, tableIdent)
@@ -599,22 +613,31 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 		return nil
 	}
 
-	planJson, _ := planSchema.MarshalJSON()
-	stateJson, _ := stateSchema.MarshalJSON()
-
-	if string(planJson) != string(stateJson) {
-		newIcebergSchema, err := planSchema.ToIceberg()
-		if err != nil {
-			diags.AddError("failed to convert schema", err.Error())
-			return nil
-		}
-		return []table.Update{
-			table.NewAddSchemaUpdate(newIcebergSchema),
-			table.NewSetCurrentSchemaUpdate(-1),
-		}
+	planIceberg, err := planSchema.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert plan schema", err.Error())
+		return nil
+	}
+	stateIceberg, err := stateSchema.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert state schema", err.Error())
+		return nil
 	}
 
-	return nil
+	// Normalize by comparing the JSON of the fields list only.
+	// This ignores the top-level schema-id and any other schema-level metadata
+	// while ensuring every field change (name, type, id, etc.) is detected.
+	planFieldsJson, _ := json.Marshal(planIceberg.Fields())
+	stateFieldsJson, _ := json.Marshal(stateIceberg.Fields())
+
+	if string(planFieldsJson) == string(stateFieldsJson) {
+		return nil
+	}
+
+	return []table.Update{
+		table.NewAddSchemaUpdate(planIceberg),
+		table.NewSetCurrentSchemaUpdate(-1),
+	}
 }
 
 func (r *icebergTableResource) calculatePartitionUpdates(ctx context.Context, plan *icebergTableResourceModel, tbl *table.Table, diags *diag.Diagnostics) []table.Update {
