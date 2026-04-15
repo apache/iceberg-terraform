@@ -27,6 +27,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
+//lint:ignore U1000 test helper for future use
 func testAccPolarisProviderConfig(catalogURI, managementURI string) string {
 	return testAccPolarisProviderConfigWithToken(catalogURI, managementURI, "")
 }
@@ -49,6 +50,7 @@ provider "iceberg" {
 `, catalogURI, managementURI, tokenAttr)
 }
 
+//lint:ignore U1000 test helper for future use
 func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
