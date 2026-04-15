@@ -42,10 +42,10 @@ func NewNamespaceResource() resource.Resource {
 }
 
 type icebergNamespaceResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.List   `tfsdk:"name"`
-	UserProperties types.Map    `tfsdk:"user_properties"`
-	ServerProperties types.Map `tfsdk:"server_properties"`
+	ID               types.String `tfsdk:"id"`
+	Name             types.List   `tfsdk:"name"`
+	UserProperties   types.Map    `tfsdk:"user_properties"`
+	ServerProperties types.Map    `tfsdk:"server_properties"`
 }
 
 type icebergNamespaceResource struct {
@@ -100,6 +100,7 @@ func (r *icebergNamespaceResource) Configure(ctx context.Context, req resource.C
 			"Unexpected Resource Configure Type",
 			"Expected *icebergProvider, got: %T. Please report this issue to the provider developers.",
 		)
+
 		return
 	}
 

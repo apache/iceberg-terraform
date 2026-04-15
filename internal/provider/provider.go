@@ -179,6 +179,7 @@ func (p *icebergProvider) Configure(ctx context.Context, req provider.ConfigureR
 			"Unsupported Catalog Type",
 			"The provider supports 'rest' and 'polaris'. Got: "+catalogType,
 		)
+
 		return
 	}
 
@@ -227,6 +228,7 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	for k, v := range h.headers {
 		req.Header.Add(k, v)
 	}
+
 	return http.DefaultTransport.RoundTrip(req)
 }
 
