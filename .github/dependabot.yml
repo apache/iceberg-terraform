@@ -28,6 +28,8 @@ updates:
         applies-to: version-updates
         dependency-type: production
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -35,3 +37,5 @@ updates:
       interval: "weekly"
       day: "sunday"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
