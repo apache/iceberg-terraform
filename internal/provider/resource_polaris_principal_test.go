@@ -36,6 +36,7 @@ func testAccPolarisProviderConfigWithToken(catalogURI, managementURI, token stri
 	if token != "" {
 		tokenAttr = fmt.Sprintf("\n  token = %q", token)
 	}
+
 	return fmt.Sprintf(`
 provider "iceberg" {
   type        = "polaris"
@@ -58,18 +59,21 @@ func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/management/v1/principals", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
 			return
 		}
 
 		var req polarisCreatePrincipalRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+
 			return
 		}
 
 		name := req.Principal.Name
 		if name == "" {
 			http.Error(w, "missing name", http.StatusBadRequest)
+
 			return
 		}
 
@@ -95,6 +99,7 @@ func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
 		name := strings.TrimPrefix(r.URL.Path, "/api/management/v1/principals/")
 		if name == "" {
 			http.NotFound(w, r)
+
 			return
 		}
 
@@ -103,6 +108,7 @@ func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
 			p, ok := principals[name]
 			if !ok {
 				http.NotFound(w, r)
+
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -110,6 +116,7 @@ func newPolarisPrincipalTestServer(t *testing.T) *httptest.Server {
 		case http.MethodDelete:
 			if _, ok := principals[name]; !ok {
 				http.NotFound(w, r)
+
 				return
 			}
 			delete(principals, name)

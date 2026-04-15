@@ -95,6 +95,7 @@ func testAccIcebergNamespaceResourceConfig(providerCfg string, description strin
     description = "%s"
   }`, description)
 	}
+
 	return providerCfg + fmt.Sprintf(`
 resource "iceberg_namespace" "test" {
   name        = ["db1"]

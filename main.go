@@ -30,7 +30,6 @@ func main() {
 		// TODO: This needs to change on release with the published name.
 		Address: ADDRESS,
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}

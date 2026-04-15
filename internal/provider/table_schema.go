@@ -51,6 +51,7 @@ func (s icebergTableSchema) MarshalJSON() ([]byte, error) {
 		val := s.ID.ValueInt64()
 		id = &val
 	}
+
 	return json.Marshal(&struct {
 		Type string `json:"type"`
 		Alias
@@ -74,6 +75,7 @@ func (s *icebergTableSchema) UnmarshalJSON(b []byte) error {
 	}
 	s.ID = types.Int64Value(raw.ID)
 	s.Fields = raw.Fields
+
 	return nil
 }
 
@@ -86,6 +88,7 @@ func (s *icebergTableSchema) ToIceberg() (*iceberg.Schema, error) {
 	if err := json.Unmarshal(b, &icebergSchema); err != nil {
 		return nil, err
 	}
+
 	return &icebergSchema, nil
 }
 
@@ -94,6 +97,7 @@ func (s *icebergTableSchema) FromIceberg(icebergSchema *iceberg.Schema) error {
 	if err != nil {
 		return err
 	}
+
 	return json.Unmarshal(b, s)
 }
 
@@ -123,6 +127,7 @@ func (s icebergTablePartitionSpec) MarshalJSON() ([]byte, error) {
 		val := int(s.SpecID.ValueInt64())
 		specID = &val
 	}
+
 	return json.Marshal(&Alias{
 		SpecID: specID,
 		Fields: s.Fields,
@@ -140,6 +145,7 @@ func (s *icebergTablePartitionSpec) UnmarshalJSON(b []byte) error {
 	}
 	s.SpecID = types.Int64Value(int64(raw.SpecID))
 	s.Fields = raw.Fields
+
 	return nil
 }
 
@@ -152,6 +158,7 @@ func (s *icebergTablePartitionSpec) ToIceberg() (*iceberg.PartitionSpec, error) 
 	if err := json.Unmarshal(b, &icebergSpec); err != nil {
 		return nil, err
 	}
+
 	return &icebergSpec, nil
 }
 
@@ -166,6 +173,7 @@ func (s *icebergTablePartitionSpec) FromIceberg(icebergSpec iceberg.PartitionSpe
 			Transform: field.Transform.String(),
 		})
 	}
+
 	return nil
 }
 
@@ -187,6 +195,7 @@ func (f icebergTablePartitionField) MarshalJSON() ([]byte, error) {
 	if !f.FieldID.IsNull() && !f.FieldID.IsUnknown() {
 		fieldID = f.FieldID.ValueInt64()
 	}
+
 	return json.Marshal(&Alias{
 		SourceIDs: f.SourceIDs,
 		FieldID:   fieldID,
@@ -210,6 +219,7 @@ func (f *icebergTablePartitionField) UnmarshalJSON(b []byte) error {
 	f.FieldID = types.Int64Value(raw.FieldID)
 	f.Name = raw.Name
 	f.Transform = raw.Transform
+
 	return nil
 }
 
@@ -248,6 +258,7 @@ func (s icebergTableSortOrder) MarshalJSON() ([]byte, error) {
 		val := int(s.OrderID.ValueInt64())
 		orderID = &val
 	}
+
 	return json.Marshal(&Alias{
 		OrderID: orderID,
 		Fields:  s.Fields,
@@ -265,6 +276,7 @@ func (s *icebergTableSortOrder) UnmarshalJSON(b []byte) error {
 	}
 	s.OrderID = types.Int64Value(int64(raw.OrderID))
 	s.Fields = raw.Fields
+
 	return nil
 }
 
@@ -277,6 +289,7 @@ func (s *icebergTableSortOrder) ToIceberg() (table.SortOrder, error) {
 	if err := json.Unmarshal(b, &icebergOrder); err != nil {
 		return table.SortOrder{}, err
 	}
+
 	return icebergOrder, nil
 }
 
@@ -286,6 +299,7 @@ func (s *icebergTableSortOrder) FromIceberg(icebergOrder table.SortOrder) error 
 	if err != nil {
 		return err
 	}
+
 	return json.Unmarshal(b, s)
 }
 
@@ -366,6 +380,7 @@ func (p icebergTableSchemaFieldListProperties) MarshalJSON() ([]byte, error) {
 	if !p.ID.IsNull() && !p.ID.IsUnknown() {
 		elementID = p.ID.ValueInt64()
 	}
+
 	return json.Marshal(struct {
 		Type            string `json:"type"`
 		ElementID       int64  `json:"element-id"`
@@ -391,6 +406,7 @@ func (p *icebergTableSchemaFieldListProperties) UnmarshalJSON(b []byte) error {
 	p.ID = types.Int64Value(raw.ElementID)
 	p.Type = raw.ElementType
 	p.ElementRequired = raw.ElementRequired
+
 	return nil
 }
 
@@ -420,6 +436,7 @@ func (p icebergTableSchemaFieldMapProperties) MarshalJSON() ([]byte, error) {
 	if !p.ValueID.IsNull() && !p.ValueID.IsUnknown() {
 		valueID = p.ValueID.ValueInt64()
 	}
+
 	return json.Marshal(struct {
 		Type          string `json:"type"`
 		KeyID         int64  `json:"key-id"`
@@ -453,6 +470,7 @@ func (p *icebergTableSchemaFieldMapProperties) UnmarshalJSON(b []byte) error {
 	p.ValueID = types.Int64Value(raw.ValueID)
 	p.ValueType = raw.ValueType
 	p.ValueRequired = raw.ValueRequired
+
 	return nil
 }
 
@@ -488,6 +506,7 @@ func (s *icebergTableSchemaFieldStructProperties) UnmarshalJSON(b []byte) error 
 		return err
 	}
 	s.Fields = raw.Fields
+
 	return nil
 }
 
@@ -568,5 +587,6 @@ func unmarshalFieldJSON(b []byte, id *types.Int64, name, typeStr *string, requir
 			return json.Unmarshal(raw.Type, structProps)
 		}
 	}
+
 	return nil
 }

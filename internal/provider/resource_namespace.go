@@ -33,9 +33,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-var (
-	_ resource.Resource = &icebergNamespaceResource{}
-)
+var _ resource.Resource = &icebergNamespaceResource{}
 
 func NewNamespaceResource() resource.Resource {
 	return &icebergNamespaceResource{}
@@ -117,11 +115,13 @@ func (r *icebergNamespaceResource) ConfigureCatalog(ctx context.Context, diags *
 			"Provider not configured",
 			"The provider hasn't been configured before this operation",
 		)
+
 		return
 	}
 
 	if r.provider.catalogURI == "" {
 		// The provider might not be fully configured yet (e.g. during plan if URI is unknown)
+
 		return
 	}
 
@@ -131,6 +131,7 @@ func (r *icebergNamespaceResource) ConfigureCatalog(ctx context.Context, diags *
 			"Failed to create catalog",
 			"Failed to create catalog: "+err.Error(),
 		)
+
 		return
 	}
 	r.catalog = catalog
@@ -172,6 +173,7 @@ func (r *icebergNamespaceResource) Create(ctx context.Context, req resource.Crea
 	err := r.catalog.CreateNamespace(ctx, namespaceIdent, userProperties)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create namespace", err.Error())
+
 		return
 	}
 
@@ -180,6 +182,7 @@ func (r *icebergNamespaceResource) Create(ctx context.Context, req resource.Crea
 	nsProps, err := r.catalog.LoadNamespaceProperties(ctx, namespaceIdent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to read namespace properties", err.Error())
+
 		return
 	}
 
@@ -239,9 +242,11 @@ func (r *icebergNamespaceResource) Read(ctx context.Context, req resource.ReadRe
 	if err != nil {
 		if errors.Is(err, catalog.ErrNoSuchNamespace) {
 			resp.State.RemoveResource(ctx)
+
 			return
 		}
 		resp.Diagnostics.AddError("failed to load namespace", err.Error())
+
 		return
 	}
 
@@ -347,12 +352,14 @@ func (r *icebergNamespaceResource) Update(ctx context.Context, req resource.Upda
 	_, err := r.catalog.UpdateNamespaceProperties(ctx, namespaceIdent, removals, updates)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to update namespace properties", err.Error())
+
 		return
 	}
 
 	nsProps, err := r.catalog.LoadNamespaceProperties(ctx, namespaceIdent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to read namespace properties", err.Error())
+
 		return
 	}
 
@@ -409,9 +416,11 @@ func (r *icebergNamespaceResource) Delete(ctx context.Context, req resource.Dele
 	if err != nil {
 		if errors.Is(err, catalog.ErrNoSuchNamespace) {
 			// If the namespace is already gone, we don't need to do anything.
+
 			return
 		}
 		resp.Diagnostics.AddError("failed to drop namespace", err.Error())
+
 		return
 	}
 }

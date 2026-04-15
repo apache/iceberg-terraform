@@ -38,9 +38,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-var (
-	_ resource.Resource = &icebergTableResource{}
-)
+var _ resource.Resource = &icebergTableResource{}
 
 func NewTableResource() resource.Resource {
 	return &icebergTableResource{}
@@ -314,6 +312,7 @@ func (r *icebergTableResource) Configure(ctx context.Context, req resource.Confi
 			"Unexpected Resource Configure Type",
 			"Expected *icebergProvider, got: %T. Please report this issue to the provider developers.",
 		)
+
 		return
 	}
 
@@ -330,11 +329,13 @@ func (r *icebergTableResource) ConfigureCatalog(ctx context.Context, diags *diag
 			"Provider not configured",
 			"The provider hasn't been configured before this operation",
 		)
+
 		return
 	}
 
 	if r.provider.catalogURI == "" {
 		// The provider might not be fully configured yet (e.g. during plan if URI is unknown)
+
 		return
 	}
 
@@ -344,6 +345,7 @@ func (r *icebergTableResource) ConfigureCatalog(ctx context.Context, diags *diag
 			"Failed to create catalog",
 			"Failed to create catalog: "+err.Error(),
 		)
+
 		return
 	}
 	r.catalog = catalog
@@ -384,6 +386,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 	tblSchema, err := schema.ToIceberg()
 	if err != nil {
 		resp.Diagnostics.AddError("failed to convert schema", err.Error())
+
 		return
 	}
 
@@ -410,6 +413,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 		icebergSpec, err := spec.ToIceberg()
 		if err != nil {
 			resp.Diagnostics.AddError("failed to convert partition spec", err.Error())
+
 			return
 		}
 		createOpts = append(createOpts, catalog.WithPartitionSpec(icebergSpec))
@@ -425,6 +429,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 		icebergOrder, err := order.ToIceberg()
 		if err != nil {
 			resp.Diagnostics.AddError("failed to convert sort order", err.Error())
+
 			return
 		}
 		createOpts = append(createOpts, catalog.WithSortOrder(icebergOrder))
@@ -433,6 +438,7 @@ func (r *icebergTableResource) Create(ctx context.Context, req resource.CreateRe
 	tbl, err := r.catalog.CreateTable(ctx, tableIdent, tblSchema, createOpts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create table", err.Error())
+
 		return
 	}
 
@@ -477,9 +483,11 @@ func (r *icebergTableResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		if errors.Is(err, catalog.ErrNoSuchTable) {
 			resp.State.RemoveResource(ctx)
+
 			return
 		}
 		resp.Diagnostics.AddError("failed to load table", err.Error())
+
 		return
 	}
 
@@ -524,6 +532,7 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 	tbl, err := r.catalog.LoadTable(ctx, tableIdent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to load table", err.Error())
+
 		return
 	}
 
@@ -546,6 +555,7 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 		_, _, err = r.catalog.CommitTable(ctx, tableIdent, requirements, updates)
 		if err != nil {
 			resp.Diagnostics.AddError("failed to commit table updates", err.Error())
+
 			return
 		}
 
@@ -553,6 +563,7 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 		err = tbl.Refresh(ctx)
 		if err != nil {
 			resp.Diagnostics.AddError("failed to refresh table after commit", err.Error())
+
 			return
 		}
 	}
@@ -623,11 +634,13 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 	planIceberg, err := planSchema.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert plan schema", err.Error())
+
 		return nil
 	}
 	stateIceberg, err := stateSchema.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert state schema", err.Error())
+
 		return nil
 	}
 
@@ -653,11 +666,13 @@ func (r *icebergTableResource) calculatePartitionUpdates(ctx context.Context, pl
 		if spec.NumFields() > 0 {
 			// Create a new unpartitioned spec and set it as default
 			unpartitionedSpec := iceberg.NewPartitionSpec()
+
 			return []table.Update{
 				table.NewAddPartitionSpecUpdate(&unpartitionedSpec, false),
 				table.NewSetDefaultSpecUpdate(-1),
 			}
 		}
+
 		return nil
 	}
 
@@ -676,6 +691,7 @@ func (r *icebergTableResource) calculatePartitionUpdates(ctx context.Context, pl
 	newIcebergSpec, err := planSpec.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert partition spec", err.Error())
+
 		return nil
 	}
 
@@ -695,11 +711,13 @@ func (r *icebergTableResource) calculateSortOrderUpdates(ctx context.Context, pl
 		if tbl.SortOrder().OrderID() != 0 {
 			// Create a new unsorted order and set it as default
 			unsortedOrder := table.UnsortedSortOrder
+
 			return []table.Update{
 				table.NewAddSortOrderUpdate(&unsortedOrder),
 				table.NewSetDefaultSortOrderUpdate(0),
 			}
 		}
+
 		return nil
 	}
 
@@ -718,6 +736,7 @@ func (r *icebergTableResource) calculateSortOrderUpdates(ctx context.Context, pl
 	newIcebergOrder, err := planOrder.ToIceberg()
 	if err != nil {
 		diags.AddError("failed to convert sort order", err.Error())
+
 		return nil
 	}
 
@@ -746,6 +765,7 @@ func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.
 	var updatedSchema icebergTableSchema
 	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
 		diags.AddError("failed to convert iceberg schema to terraform schema", err.Error())
+
 		return
 	}
 	var d2 diag.Diagnostics
@@ -761,6 +781,7 @@ func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.
 		var updatedSpec icebergTablePartitionSpec
 		if err := updatedSpec.FromIceberg(icebergSpec); err != nil {
 			diags.AddError("failed to convert iceberg partition spec to terraform partition spec", err.Error())
+
 			return
 		}
 		var d3 diag.Diagnostics
@@ -776,6 +797,7 @@ func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.
 		var updatedOrder icebergTableSortOrder
 		if err := updatedOrder.FromIceberg(icebergOrder); err != nil {
 			diags.AddError("failed to convert iceberg sort order to terraform sort order", err.Error())
+
 			return
 		}
 		var d4 diag.Diagnostics
@@ -837,6 +859,7 @@ func (r *icebergTableResource) Delete(ctx context.Context, req resource.DeleteRe
 			return
 		}
 		resp.Diagnostics.AddError("failed to drop table", err.Error())
+
 		return
 	}
 }
@@ -854,6 +877,7 @@ func (r *icebergTableResource) ImportState(ctx context.Context, req resource.Imp
 			"Invalid Import ID",
 			"The import ID should be a dot-separated full identifier (namespace + name).",
 		)
+
 		return
 	}
 
