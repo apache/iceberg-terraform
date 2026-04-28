@@ -543,7 +543,7 @@ func (r *icebergTableResource) Update(ctx context.Context, req resource.UpdateRe
 	updates := make([]table.Update, 0)
 
 	updates = append(updates, r.calculatePropertyUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
-	updates = append(updates, r.calculateSchemaUpdates(ctx, &plan, &state, &resp.Diagnostics)...)
+	updates = append(updates, r.calculateSchemaUpdates(ctx, &plan, &state, tbl, &resp.Diagnostics)...)
 	updates = append(updates, r.calculatePartitionUpdates(ctx, &plan, tbl, &resp.Diagnostics)...)
 	updates = append(updates, r.calculateSortOrderUpdates(ctx, &plan, tbl, &resp.Diagnostics)...)
 
@@ -620,7 +620,7 @@ func (r *icebergTableResource) calculatePropertyUpdates(ctx context.Context, pla
 	return updates
 }
 
-func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan, state *icebergTableResourceModel, diags *diag.Diagnostics) []table.Update {
+func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan, state *icebergTableResourceModel, tbl *table.Table, diags *diag.Diagnostics) []table.Update {
 	var planSchema, stateSchema icebergTableSchema
 	d := plan.Schema.As(ctx, &planSchema, basetypes.ObjectAsOptions{})
 	diags.Append(d...)
@@ -654,9 +654,29 @@ func (r *icebergTableResource) calculateSchemaUpdates(ctx context.Context, plan,
 		return nil
 	}
 
+	// Find the highest existing schema ID to ensure the new one is unique.
+	maxSchemaID := int64(0)
+	for _, s := range tbl.Metadata().Schemas() {
+		if int64(s.ID) > maxSchemaID {
+			maxSchemaID = int64(s.ID)
+		}
+	}
+
+	newSchemaID := maxSchemaID + 1
+	planSchema.ID = types.Int64Value(newSchemaID)
+	planIceberg, err = planSchema.ToIceberg()
+	if err != nil {
+		diags.AddError("failed to convert plan schema with new ID", err.Error())
+
+		return nil
+	}
+
+	// Return two events:
+	// 1. Add the schema with new schema ID.
+	// 2. Set the table schema explicitly to that new ID.
 	return []table.Update{
 		table.NewAddSchemaUpdate(planIceberg),
-		table.NewSetCurrentSchemaUpdate(-1),
+		table.NewSetCurrentSchemaUpdate(int(newSchemaID)),
 	}
 }
 
