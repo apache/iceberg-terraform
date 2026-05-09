@@ -772,60 +772,15 @@ func (r *icebergTableResource) calculateSortOrderUpdates(ctx context.Context, pl
 }
 
 func (r *icebergTableResource) syncTableToModel(ctx context.Context, tbl *table.Table, model *icebergTableResourceModel, diags *diag.Diagnostics) {
-	// Update ServerProperties
-	serverProperties, d := types.MapValueFrom(ctx, types.StringType, tbl.Properties())
-	diags.Append(d...)
+	meta := icebergTableMetadataFields{}
+	syncIcebergTableMetadataToModel(ctx, tbl, &meta, diags)
 	if diags.HasError() {
 		return
 	}
-	model.ServerProperties = serverProperties
-
-	// Update Schema from the table to capture any server-assigned IDs
-	icebergSchema := tbl.Schema()
-	var updatedSchema icebergTableSchema
-	if err := updatedSchema.FromIceberg(icebergSchema); err != nil {
-		diags.AddError("failed to convert iceberg schema to terraform schema", err.Error())
-
-		return
-	}
-	var d2 diag.Diagnostics
-	model.Schema, d2 = types.ObjectValueFrom(ctx, icebergTableSchema{}.AttrTypes(), updatedSchema)
-	diags.Append(d2...)
-	if diags.HasError() {
-		return
-	}
-
-	// Update PartitionSpec
-	icebergSpec := tbl.Spec()
-	if icebergSpec.NumFields() > 0 {
-		var updatedSpec icebergTablePartitionSpec
-		if err := updatedSpec.FromIceberg(icebergSpec); err != nil {
-			diags.AddError("failed to convert iceberg partition spec to terraform partition spec", err.Error())
-
-			return
-		}
-		var d3 diag.Diagnostics
-		model.PartitionSpec, d3 = types.ObjectValueFrom(ctx, icebergTablePartitionSpec{}.AttrTypes(), updatedSpec)
-		diags.Append(d3...)
-	} else {
-		model.PartitionSpec = types.ObjectNull(icebergTablePartitionSpec{}.AttrTypes())
-	}
-
-	// Update SortOrder
-	icebergOrder := tbl.SortOrder()
-	if icebergOrder.Len() > 0 {
-		var updatedOrder icebergTableSortOrder
-		if err := updatedOrder.FromIceberg(icebergOrder); err != nil {
-			diags.AddError("failed to convert iceberg sort order to terraform sort order", err.Error())
-
-			return
-		}
-		var d4 diag.Diagnostics
-		model.SortOrder, d4 = types.ObjectValueFrom(ctx, icebergTableSortOrder{}.AttrTypes(), updatedOrder)
-		diags.Append(d4...)
-	} else {
-		model.SortOrder = types.ObjectNull(icebergTableSortOrder{}.AttrTypes())
-	}
+	model.Schema = meta.Schema
+	model.PartitionSpec = meta.PartitionSpec
+	model.SortOrder = meta.SortOrder
+	model.ServerProperties = meta.ServerProperties
 
 	// Update UserProperties to match reality for tracked keys
 	if !model.UserProperties.IsNull() {

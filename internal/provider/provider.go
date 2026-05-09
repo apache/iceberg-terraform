@@ -233,7 +233,9 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 // DataSources defines the data sources implemented in the provider.
 func (p *icebergProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewTableDataSource,
+	}
 }
 
 // Resources defines the resources implemented in the provider.

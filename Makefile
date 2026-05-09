@@ -15,6 +15,11 @@
 
 .PHONY: test-integration test-integration-setup test-integration-exec test-integration-cleanup
 
+test-integration: ## Start Docker services, run integration tests, then tear down
+	$(MAKE) test-integration-setup
+	$(MAKE) test-integration-exec
+	$(MAKE) test-integration-cleanup
+
 test-integration-setup: ## Start Docker services for integration tests
 	docker compose -f dev/docker-compose.yml kill
 	docker compose -f dev/docker-compose.yml rm -f
